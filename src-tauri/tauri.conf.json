@@ -43,6 +43,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "category": "Utility"
+    "category": "Utility",
+    "icon": ["icons/icon.ico"]
   }
 }
