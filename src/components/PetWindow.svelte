@@ -2,7 +2,7 @@
   import { LogicalPosition } from "@tauri-apps/api/dpi";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import SpritePet from "./SpritePet.svelte";
-  import type { PetInfo, RuntimeState } from "../lib/petdesk";
+  import type { PetInfo, RuntimeState } from "../lib/petpop";
   import {
     getRuntimeState,
     getPetSpriteUrl,
@@ -11,7 +11,7 @@
     listPets,
     setPetWindowPosition,
     setScene,
-  } from "../lib/petdesk";
+  } from "../lib/petpop";
 
   let pets = $state<PetInfo[]>([]);
   let runtime = $state<RuntimeState>({

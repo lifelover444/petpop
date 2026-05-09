@@ -2,25 +2,25 @@
 
 ## Project
 
-PetDesk is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible pets. It imports pets produced by Hatch Pet, installed in Codex, or published on PetDex, then renders them as a transparent always-on-top desktop companion.
+PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible pets. It imports pets produced by Hatch Pet, installed in Codex, or published on PetDex, then renders them as a transparent always-on-top desktop companion.
 
 ## Core Requirements
 
 - Keep the app lightweight. Prefer Tauri/Rust/Svelte primitives over Electron-style heavy runtime assumptions.
 - Do not bundle third-party PetDex pets into the app. Users must explicitly import them.
-- Do not modify `~/.codex/pets` or repository sample pets during normal app operation. Imported pets belong under `%APPDATA%/PetDesk/pets/`.
+- Do not modify `~/.codex/pets` or repository sample pets during normal app operation. Imported pets belong under `%APPDATA%/PetPop/pets/`.
 - Preserve compatibility with the Codex pet contract:
   - atlas size: `1536x1872`
   - grid: `8` columns x `9` rows
   - cell size: `192x208`
   - metadata: `pet.json` with `id`, `displayName`, `description`, `spritesheetPath`
-- Keep `pet.json` Codex-compatible. Store PetDesk-only metadata in `petdesk.pet.json`.
+- Keep `pet.json` Codex-compatible. Store PetPop-only metadata in `petpop.pet.json`.
 
 ## Architecture
 
 - Frontend lives in `src/`.
   - `src/lib/animations.ts` owns the Codex row/frame/duration table.
-  - `src/lib/petdesk.ts` owns Tauri command wrappers and browser-preview fallbacks.
+  - `src/lib/petpop.ts` owns Tauri command wrappers and browser-preview fallbacks.
   - `src/components/ControlApp.svelte` is the control panel.
   - `src/components/PetWindow.svelte` is the transparent always-on-top runtime pet window.
   - `src/components/SpritePet.svelte` renders one atlas frame by CSS background positioning.
@@ -81,10 +81,10 @@ For desktop development:
 npm run tauri:dev
 ```
 
-If `petdesk.exe` is already running, stop it before rebuilding on Windows because the executable file will be locked:
+If `petpop.exe` is already running, stop it before rebuilding on Windows because the executable file will be locked:
 
 ```powershell
-Get-Process petdesk -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process petpop -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
 
 ## Verification Expectations

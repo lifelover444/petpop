@@ -14,7 +14,7 @@
     setScene,
     type PetInfo,
     type RuntimeState,
-  } from "../lib/petdesk";
+  } from "../lib/petpop";
 
   let pets = $state<PetInfo[]>([]);
   let runtime = $state<RuntimeState>({
@@ -172,7 +172,7 @@
     <div class="brand">
       <span class="mark"></span>
       <div>
-        <h1>PetDesk</h1>
+        <h1>PetPop</h1>
         <p>Codex pet runtime</p>
       </div>
     </div>
@@ -269,7 +269,7 @@
     <button disabled={busy} onclick={scanCodexNow}>Scan Codex pets</button>
 
     <div class="source-note">
-      PetDex pets are user-submitted fan art. PetDesk stores only pets you
+      PetDex pets are user-submitted fan art. PetPop stores only pets you
       import.
     </div>
   </aside>

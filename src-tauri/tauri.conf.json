@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PetDesk",
+  "productName": "PetPop",
   "version": "0.1.0",
-  "identifier": "run.petdesk.app",
+  "identifier": "run.petpop.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "PetDesk",
+        "title": "PetPop",
         "width": 1040,
         "height": 700,
         "minWidth": 860,
@@ -23,7 +23,7 @@
       },
       {
         "label": "pet",
-        "title": "PetDesk Pet",
+        "title": "PetPop Pet",
         "width": 192,
         "height": 208,
         "resizable": false,

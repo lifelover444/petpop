@@ -1,8 +1,8 @@
 [package]
-name = "petdesk"
+name = "petpop"
 version = "0.1.0"
 description = "A lightweight desktop runtime for Codex-compatible pets"
-authors = ["PetDesk"]
+authors = ["PetPop"]
 edition = "2021"
 
 [build-dependencies]

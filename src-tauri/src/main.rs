@@ -24,6 +24,11 @@ const ATLAS_HEIGHT: u32 = CELL_HEIGHT * 9;
 const PETDEX_RAW_BASE: &str =
     "https://raw.githubusercontent.com/crafter-station/petdex/main/public/pets";
 const PETDEX_MANIFEST_URL: &str = "https://petdex.crafter.run/api/manifest";
+const APP_DATA_DIR_NAME: &str = "PetPop";
+const LEGACY_APP_DATA_DIR_NAME: &str = "PetDesk";
+const PETPOP_METADATA_FILE: &str = "petpop.pet.json";
+const TITLECASE_METADATA_FILE: &str = "PetPop.pet.json";
+const LEGACY_METADATA_FILE: &str = "petdesk.pet.json";
 
 #[derive(Default)]
 struct AppState {
@@ -71,7 +76,7 @@ struct CodexPetJson {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PetDeskMetadata {
+struct PetPopMetadata {
     schema_version: u8,
     source: PetSource,
     scale: f32,
@@ -97,7 +102,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
-            let show = MenuItem::with_id(app, "show", "Show PetDesk", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Show PetPop", true, None::<&str>)?;
             let hide_pet = MenuItem::with_id(app, "hide_pet", "Hide Pet", true, None::<&str>)?;
             let show_pet = MenuItem::with_id(app, "show_pet", "Show Pet", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -144,7 +149,7 @@ fn main() {
             set_scale
         ])
         .run(tauri::generate_context!())
-        .expect("error while running PetDesk");
+        .expect("error while running PetPop");
 }
 
 #[tauri::command]
@@ -374,7 +379,7 @@ fn read_pet_json(path: &Path) -> Result<CodexPetJson, String> {
 }
 
 fn write_metadata(path: &Path, kind: &str, url: Option<String>) -> Result<(), String> {
-    let metadata = PetDeskMetadata {
+    let metadata = PetPopMetadata {
         schema_version: 1,
         source: PetSource {
             kind: kind.to_string(),
@@ -385,16 +390,19 @@ fn write_metadata(path: &Path, kind: &str, url: Option<String>) -> Result<(), St
         imported_at: timestamp(),
     };
     let raw = serde_json::to_string_pretty(&metadata).map_err(to_string)?;
-    fs::write(path.join("petdesk.pet.json"), raw).map_err(to_string)
+    fs::write(path.join(PETPOP_METADATA_FILE), raw).map_err(to_string)
 }
 
-fn read_metadata(path: &Path) -> Option<PetDeskMetadata> {
-    let raw = fs::read_to_string(path.join("petdesk.pet.json")).ok()?;
+fn read_metadata(path: &Path) -> Option<PetPopMetadata> {
+    let raw = fs::read_to_string(path.join(PETPOP_METADATA_FILE))
+        .or_else(|_| fs::read_to_string(path.join(TITLECASE_METADATA_FILE)))
+        .or_else(|_| fs::read_to_string(path.join(LEGACY_METADATA_FILE)))
+        .ok()?;
     serde_json::from_str(&raw).ok()
 }
 
-fn default_app_metadata() -> PetDeskMetadata {
-    PetDeskMetadata {
+fn default_app_metadata() -> PetPopMetadata {
+    PetPopMetadata {
         schema_version: 1,
         source: PetSource {
             kind: "app".to_string(),
@@ -406,14 +414,18 @@ fn default_app_metadata() -> PetDeskMetadata {
     }
 }
 
-fn read_app_metadata() -> Option<PetDeskMetadata> {
-    let raw = fs::read_to_string(app_data_dir().ok()?.join("petdesk.pet.json")).ok()?;
+fn read_app_metadata() -> Option<PetPopMetadata> {
+    let app_dir = app_data_dir().ok()?;
+    let raw = fs::read_to_string(app_dir.join(PETPOP_METADATA_FILE))
+        .or_else(|_| fs::read_to_string(app_dir.join(TITLECASE_METADATA_FILE)))
+        .or_else(|_| fs::read_to_string(app_dir.join(LEGACY_METADATA_FILE)))
+        .ok()?;
     serde_json::from_str(&raw).ok()
 }
 
-fn write_app_metadata(metadata: &PetDeskMetadata) -> Result<(), String> {
+fn write_app_metadata(metadata: &PetPopMetadata) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(metadata).map_err(to_string)?;
-    fs::write(app_data_dir()?.join("petdesk.pet.json"), raw).map_err(to_string)
+    fs::write(app_data_dir()?.join(PETPOP_METADATA_FILE), raw).map_err(to_string)
 }
 
 fn extract_zip(path: &Path) -> Result<PathBuf, String> {
@@ -520,9 +532,55 @@ fn app_data_dir() -> Result<PathBuf, String> {
     let base = dirs::data_dir()
         .or_else(dirs::home_dir)
         .ok_or_else(|| "Cannot locate application data directory.".to_string())?;
-    let dir = base.join("PetDesk");
+    let dir = base.join(APP_DATA_DIR_NAME);
+    migrate_legacy_app_data(&base, &dir)?;
     fs::create_dir_all(&dir).map_err(to_string)?;
     Ok(dir)
+}
+
+fn migrate_legacy_app_data(base: &Path, new_dir: &Path) -> Result<(), String> {
+    let legacy_dir = base.join(LEGACY_APP_DATA_DIR_NAME);
+    if !legacy_dir.exists() {
+        return Ok(());
+    }
+
+    if !new_dir.exists() {
+        copy_dir_all(&legacy_dir, new_dir).map_err(to_string)?;
+        return Ok(());
+    }
+
+    let legacy_pets = legacy_dir.join("pets");
+    let new_pets = new_dir.join("pets");
+    if legacy_pets.exists() {
+        fs::create_dir_all(&new_pets).map_err(to_string)?;
+        for entry in fs::read_dir(&legacy_pets).map_err(to_string)? {
+            let source = entry.map_err(to_string)?.path();
+            let Some(name) = source.file_name() else {
+                continue;
+            };
+            let target = new_pets.join(name);
+            if !target.exists() {
+                if source.is_dir() {
+                    copy_dir_all(&source, &target).map_err(to_string)?;
+                } else {
+                    fs::copy(&source, &target).map_err(to_string)?;
+                }
+            }
+        }
+    }
+
+    let new_metadata = new_dir.join(PETPOP_METADATA_FILE);
+    if !new_metadata.exists() {
+        for candidate in [PETPOP_METADATA_FILE, TITLECASE_METADATA_FILE, LEGACY_METADATA_FILE] {
+            let legacy_metadata = legacy_dir.join(candidate);
+            if legacy_metadata.exists() {
+                fs::copy(legacy_metadata, &new_metadata).map_err(to_string)?;
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn pets_dir() -> Result<PathBuf, String> {
