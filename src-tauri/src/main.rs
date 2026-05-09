@@ -136,6 +136,8 @@ fn main() {
             import_petdex,
             scan_codex_pets,
             get_pet_sprite_data_url,
+            get_pet_window_position,
+            set_pet_window_position,
             get_runtime_state,
             set_active_pet,
             set_scene,
@@ -232,6 +234,20 @@ fn get_pet_sprite_data_url(pet_id: String) -> Result<String, String> {
         "data:{mime};base64,{}",
         BASE64_STANDARD.encode(bytes)
     ))
+}
+
+#[tauri::command]
+fn get_pet_window_position() -> Result<PetPosition, String> {
+    Ok(read_app_metadata()
+        .map(|metadata| metadata.position)
+        .unwrap_or(PetPosition { x: 1200, y: 580 }))
+}
+
+#[tauri::command]
+fn set_pet_window_position(x: i32, y: i32) -> Result<(), String> {
+    let mut metadata = read_app_metadata().unwrap_or_else(default_app_metadata);
+    metadata.position = PetPosition { x, y };
+    write_app_metadata(&metadata)
 }
 
 #[tauri::command]
@@ -375,6 +391,29 @@ fn write_metadata(path: &Path, kind: &str, url: Option<String>) -> Result<(), St
 fn read_metadata(path: &Path) -> Option<PetDeskMetadata> {
     let raw = fs::read_to_string(path.join("petdesk.pet.json")).ok()?;
     serde_json::from_str(&raw).ok()
+}
+
+fn default_app_metadata() -> PetDeskMetadata {
+    PetDeskMetadata {
+        schema_version: 1,
+        source: PetSource {
+            kind: "app".to_string(),
+            url: None,
+        },
+        scale: 1.0,
+        position: PetPosition { x: 1200, y: 580 },
+        imported_at: timestamp(),
+    }
+}
+
+fn read_app_metadata() -> Option<PetDeskMetadata> {
+    let raw = fs::read_to_string(app_data_dir().ok()?.join("petdesk.pet.json")).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_app_metadata(metadata: &PetDeskMetadata) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(metadata).map_err(to_string)?;
+    fs::write(app_data_dir()?.join("petdesk.pet.json"), raw).map_err(to_string)
 }
 
 fn extract_zip(path: &Path) -> Result<PathBuf, String> {

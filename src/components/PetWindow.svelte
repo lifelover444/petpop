@@ -6,8 +6,10 @@
   import {
     getRuntimeState,
     getPetSpriteUrl,
+    getPetWindowPosition,
     isTauri,
     listPets,
+    setPetWindowPosition,
     setScene,
   } from "../lib/petdesk";
 
@@ -17,10 +19,7 @@
     scene: "idle",
     scale: 1,
   });
-  let dragging = false;
   let activeSpriteUrl = $state("");
-  let dragStart: { x: number; y: number; winX: number; winY: number } | null =
-    null;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -35,11 +34,20 @@
   }
 
   $effect(() => {
+    document.documentElement.classList.add("pet-runtime");
+    document.body.classList.add("pet-runtime");
+    if (isTauri()) {
+      getPetWindowPosition().then((position) => {
+        getCurrentWindow().setPosition(new LogicalPosition(position.x, position.y));
+      });
+    }
     refreshPets();
     refreshRuntime();
     const runtimeId = window.setInterval(refreshRuntime, 350);
     const petsId = window.setInterval(refreshPets, 5000);
     return () => {
+      document.documentElement.classList.remove("pet-runtime");
+      document.body.classList.remove("pet-runtime");
       window.clearInterval(runtimeId);
       window.clearInterval(petsId);
     };
@@ -66,39 +74,24 @@
   });
 
   async function beginDrag(event: PointerEvent) {
-    dragging = true;
+    if (event.button !== 0) {
+      return;
+    }
+
     await setScene("waving");
 
     if (!isTauri()) {
       return;
     }
 
-    const position = await getCurrentWindow().outerPosition();
-    dragStart = {
-      x: event.screenX,
-      y: event.screenY,
-      winX: position.x,
-      winY: position.y,
-    };
-  }
-
-  async function moveDrag(event: PointerEvent) {
-    if (!dragging || !dragStart || !isTauri()) {
-      return;
-    }
-
-    const dx = event.screenX - dragStart.x;
-    const dy = event.screenY - dragStart.y;
-    const state = dx >= 0 ? "running-right" : "running-left";
-    await setScene(state);
-    await getCurrentWindow().setPosition(
-      new LogicalPosition(dragStart.winX + dx, dragStart.winY + dy),
-    );
+    await getCurrentWindow().startDragging();
   }
 
   async function endDrag() {
-    dragging = false;
-    dragStart = null;
+    if (isTauri()) {
+      const position = await getCurrentWindow().outerPosition();
+      await setPetWindowPosition({ x: position.x, y: position.y });
+    }
     await setScene("idle");
   }
 </script>
@@ -106,7 +99,6 @@
 <main
   class="pet-window"
   onpointerdown={beginDrag}
-  onpointermove={moveDrag}
   onpointerup={endDrag}
   onpointercancel={endDrag}
   ondblclick={() => setScene("jumping")}

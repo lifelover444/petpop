@@ -20,6 +20,11 @@ export interface RuntimeState {
   scale: number;
 }
 
+export interface PetWindowPosition {
+  x: number;
+  y: number;
+}
+
 export const isTauri = () => Boolean(window.__TAURI_INTERNALS__);
 
 const demoPets: PetInfo[] = [
@@ -168,4 +173,22 @@ export async function setScale(scale: number): Promise<RuntimeState> {
   }
 
   return invoke<RuntimeState>("set_scale", { scale });
+}
+
+export async function getPetWindowPosition(): Promise<PetWindowPosition> {
+  if (!isTauri()) {
+    return { x: 1200, y: 580 };
+  }
+
+  return invoke<PetWindowPosition>("get_pet_window_position");
+}
+
+export async function setPetWindowPosition(
+  position: PetWindowPosition,
+): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+
+  await invoke("set_pet_window_position", { x: position.x, y: position.y });
 }
