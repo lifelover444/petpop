@@ -153,7 +153,7 @@ fn list_pets() -> Result<Vec<PetInfo>, String> {
     for entry in fs::read_dir(&pets_dir).map_err(to_string)? {
         let path = entry.map_err(to_string)?.path();
         if path.is_dir() {
-            if let Ok(pet) = validate_pet_dir(&path) {
+            if let Ok(pet) = read_pet_dir_info(&path) {
                 pets.push(pet);
             }
         }
@@ -288,7 +288,19 @@ fn validate_pet_dir(path: &Path) -> Result<PetInfo, String> {
         ));
     }
 
+    read_pet_dir_info(path)
+}
+
+fn read_pet_dir_info(path: &Path) -> Result<PetInfo, String> {
+    let pet_json = read_pet_json(path)?;
+    let spritesheet = path.join(&pet_json.spritesheet_path);
+    if !spritesheet.exists() {
+        return Err(format!("Missing spritesheet: {}", spritesheet.display()));
+    }
+
     let metadata = read_metadata(path);
+    let scale = metadata.as_ref().map(|meta| meta.scale).unwrap_or(1.0);
+
     Ok(PetInfo {
         id: pet_json.id,
         display_name: pet_json.display_name,
@@ -299,7 +311,7 @@ fn validate_pet_dir(path: &Path) -> Result<PetInfo, String> {
             .map(|meta| meta.source.kind.clone())
             .unwrap_or_else(|| "unknown".to_string()),
         source_url: metadata.and_then(|meta| meta.source.url),
-        scale: 1.0,
+        scale,
     })
 }
 

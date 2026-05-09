@@ -25,19 +25,23 @@
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
   );
 
-  async function refresh() {
-    const [nextPets, nextRuntime] = await Promise.all([
-      listPets(),
-      getRuntimeState(),
-    ]);
-    pets = nextPets;
-    runtime = nextRuntime;
+  async function refreshPets() {
+    pets = await listPets();
+  }
+
+  async function refreshRuntime() {
+    runtime = await getRuntimeState();
   }
 
   $effect(() => {
-    refresh();
-    const id = window.setInterval(refresh, 300);
-    return () => window.clearInterval(id);
+    refreshPets();
+    refreshRuntime();
+    const runtimeId = window.setInterval(refreshRuntime, 350);
+    const petsId = window.setInterval(refreshPets, 5000);
+    return () => {
+      window.clearInterval(runtimeId);
+      window.clearInterval(petsId);
+    };
   });
 
   async function beginDrag(event: PointerEvent) {
