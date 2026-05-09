@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -22,6 +23,7 @@ const ATLAS_WIDTH: u32 = CELL_WIDTH * 8;
 const ATLAS_HEIGHT: u32 = CELL_HEIGHT * 9;
 const PETDEX_RAW_BASE: &str =
     "https://raw.githubusercontent.com/crafter-station/petdex/main/public/pets";
+const PETDEX_MANIFEST_URL: &str = "https://petdex.crafter.run/api/manifest";
 
 #[derive(Default)]
 struct AppState {
@@ -133,6 +135,7 @@ fn main() {
             import_pet_from_path,
             import_petdex,
             scan_codex_pets,
+            get_pet_sprite_data_url,
             get_runtime_state,
             set_active_pet,
             set_scene,
@@ -180,8 +183,21 @@ fn import_petdex(input: String) -> Result<PetInfo, String> {
     let staging = cache_dir()?.join(format!("petdex-{id}-{}", timestamp()));
     fs::create_dir_all(&staging).map_err(to_string)?;
 
-    let pet_url = format!("{PETDEX_RAW_BASE}/{id}/pet.json");
-    let sprite_url = format!("{PETDEX_RAW_BASE}/{id}/spritesheet.webp");
+    let manifest = download(PETDEX_MANIFEST_URL)
+        .and_then(|bytes| String::from_utf8(bytes).map_err(to_string))
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).map_err(to_string));
+    let (pet_url, sprite_url) = match manifest {
+        Ok(value) => find_petdex_manifest_urls(&value, &id).unwrap_or_else(|| {
+            (
+                format!("{PETDEX_RAW_BASE}/{id}/pet.json"),
+                format!("{PETDEX_RAW_BASE}/{id}/spritesheet.webp"),
+            )
+        }),
+        Err(_) => (
+            format!("{PETDEX_RAW_BASE}/{id}/pet.json"),
+            format!("{PETDEX_RAW_BASE}/{id}/spritesheet.webp"),
+        ),
+    };
     let pet_json = download(&pet_url).map_err(|error| {
         format!(
             "{error}. Install with `npx petdex install {id}` and then use Scan Codex pets."
@@ -197,6 +213,25 @@ fn import_petdex(input: String) -> Result<PetInfo, String> {
     fs::write(staging.join("spritesheet.webp"), sprite).map_err(to_string)?;
 
     import_pet_source(&staging, "petdex", Some(url))
+}
+
+#[tauri::command]
+fn get_pet_sprite_data_url(pet_id: String) -> Result<String, String> {
+    let pet_dir = pets_dir()?.join(sanitize_id(&pet_id));
+    let pet_json = read_pet_json(&pet_dir)?;
+    let spritesheet = pet_dir.join(&pet_json.spritesheet_path);
+    let bytes = fs::read(&spritesheet)
+        .map_err(|error| format!("Cannot read spritesheet {}: {error}", spritesheet.display()))?;
+    let mime = if pet_json.spritesheet_path.ends_with(".png") {
+        "image/png"
+    } else {
+        "image/webp"
+    };
+
+    Ok(format!(
+        "data:{mime};base64,{}",
+        BASE64_STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]
@@ -422,6 +457,16 @@ fn parse_petdex_id(input: &str) -> Result<String, String> {
     } else {
         Err("PetDex id can only contain letters, numbers, dash, or underscore.".to_string())
     }
+}
+
+fn find_petdex_manifest_urls(value: &serde_json::Value, id: &str) -> Option<(String, String)> {
+    let pets = value.get("pets")?.as_array()?;
+    let pet = pets
+        .iter()
+        .find(|pet| pet.get("slug").and_then(|slug| slug.as_str()) == Some(id))?;
+    let pet_json_url = pet.get("petJsonUrl")?.as_str()?.to_string();
+    let spritesheet_url = pet.get("spritesheetUrl")?.as_str()?.to_string();
+    Some((pet_json_url, spritesheet_url))
 }
 
 fn download(url: &str) -> Result<Vec<u8>, String> {

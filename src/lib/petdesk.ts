@@ -48,9 +48,25 @@ let browserRuntime: RuntimeState = {
   scene: "idle",
   scale: 1,
 };
+const spriteDataUrlCache = new Map<string, string>();
 
 export function spriteUrl(path: string) {
   return isTauri() ? convertFileSrc(path) : path;
+}
+
+export async function getPetSpriteUrl(pet: PetInfo): Promise<string> {
+  if (!isTauri()) {
+    return pet.spritesheetPath;
+  }
+
+  const cached = spriteDataUrlCache.get(pet.id);
+  if (cached) {
+    return cached;
+  }
+
+  const url = await invoke<string>("get_pet_sprite_data_url", { petId: pet.id });
+  spriteDataUrlCache.set(pet.id, url);
+  return url;
 }
 
 export async function listPets(): Promise<PetInfo[]> {
@@ -66,7 +82,9 @@ export async function importPetFromPath(path: string): Promise<PetInfo> {
     throw new Error("Local import requires the desktop app.");
   }
 
-  return invoke<PetInfo>("import_pet_from_path", { path });
+  const pet = await invoke<PetInfo>("import_pet_from_path", { path });
+  spriteDataUrlCache.delete(pet.id);
+  return pet;
 }
 
 export async function importPetdex(input: string): Promise<PetInfo> {
@@ -74,7 +92,9 @@ export async function importPetdex(input: string): Promise<PetInfo> {
     throw new Error("PetDex import requires the desktop app.");
   }
 
-  return invoke<PetInfo>("import_petdex", { input });
+  const pet = await invoke<PetInfo>("import_petdex", { input });
+  spriteDataUrlCache.delete(pet.id);
+  return pet;
 }
 
 export async function scanCodexPets(): Promise<PetInfo[]> {
@@ -82,21 +102,28 @@ export async function scanCodexPets(): Promise<PetInfo[]> {
     return demoPets;
   }
 
-  return invoke<PetInfo[]>("scan_codex_pets");
+  const pets = await invoke<PetInfo[]>("scan_codex_pets");
+  spriteDataUrlCache.clear();
+  return pets;
 }
 
-export async function chooseImportPath(): Promise<string | null> {
+export async function chooseImportPath(
+  kind: "file" | "folder",
+): Promise<string | null> {
   if (!isTauri()) {
     return null;
   }
 
   const selected = await open({
     multiple: false,
-    directory: false,
-    filters: [
-      { name: "Pet package", extensions: ["zip", "json", "webp"] },
-      { name: "All files", extensions: ["*"] },
-    ],
+    directory: kind === "folder",
+    filters:
+      kind === "file"
+        ? [
+            { name: "Pet package", extensions: ["zip"] },
+            { name: "All files", extensions: ["*"] },
+          ]
+        : undefined,
   });
 
   if (Array.isArray(selected)) {

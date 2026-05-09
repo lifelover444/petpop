@@ -3,6 +3,7 @@
   import { ANIMATION_ROWS, type PetAnimationState } from "../lib/animations";
   import {
     chooseImportPath,
+    getPetSpriteUrl,
     getRuntimeState,
     importPetFromPath,
     importPetdex,
@@ -11,7 +12,6 @@
     setActivePet,
     setScale,
     setScene,
-    spriteUrl,
     type PetInfo,
     type RuntimeState,
   } from "../lib/petdesk";
@@ -28,6 +28,7 @@
   let busy = $state(false);
   let taskRunning = $state(false);
   let lastInteraction = Date.now();
+  let activeSpriteUrl = $state("");
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -82,8 +83,8 @@
     });
   }
 
-  async function pickPath() {
-    const path = await chooseImportPath();
+  async function pickPath(kind: "file" | "folder") {
+    const path = await chooseImportPath(kind);
     if (path) {
       importPath = path;
     }
@@ -138,6 +139,32 @@
 
     return () => window.clearInterval(id);
   });
+
+  $effect(() => {
+    const pet = activePet;
+    let cancelled = false;
+    activeSpriteUrl = "";
+
+    if (!pet) {
+      return;
+    }
+
+    getPetSpriteUrl(pet)
+      .then((url) => {
+        if (!cancelled) {
+          activeSpriteUrl = url;
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          status = error instanceof Error ? error.message : String(error);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <main class="app-shell">
@@ -177,12 +204,14 @@
     </header>
 
     <div class="stage">
-      {#if activePet}
+      {#if activePet && activeSpriteUrl}
         <SpritePet
-          imageUrl={spriteUrl(activePet.spritesheetPath)}
+          imageUrl={activeSpriteUrl}
           state={runtime.scene}
           scale={runtime.scale}
         />
+      {:else if activePet}
+        <div class="stage-message">Loading sprite</div>
       {/if}
     </div>
 
@@ -225,7 +254,8 @@
       <span>Package path</span>
       <div class="input-row">
         <input bind:value={importPath} placeholder="zip or pet folder" />
-        <button onclick={pickPath}>Browse</button>
+        <button onclick={() => pickPath("file")}>Zip</button>
+        <button onclick={() => pickPath("folder")}>Folder</button>
       </div>
     </label>
     <button disabled={busy} onclick={importPathNow}>Import local</button>

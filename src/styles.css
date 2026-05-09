@@ -241,8 +241,13 @@ label span,
 
 .input-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
+}
+
+.stage-message {
+  color: #676b64;
+  font-size: 15px;
 }
 
 .source-note {

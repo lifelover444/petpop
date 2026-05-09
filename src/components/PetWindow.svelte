@@ -5,10 +5,10 @@
   import type { PetInfo, RuntimeState } from "../lib/petdesk";
   import {
     getRuntimeState,
+    getPetSpriteUrl,
     isTauri,
     listPets,
     setScene,
-    spriteUrl,
   } from "../lib/petdesk";
 
   let pets = $state<PetInfo[]>([]);
@@ -18,6 +18,7 @@
     scale: 1,
   });
   let dragging = false;
+  let activeSpriteUrl = $state("");
   let dragStart: { x: number; y: number; winX: number; winY: number } | null =
     null;
 
@@ -41,6 +42,26 @@
     return () => {
       window.clearInterval(runtimeId);
       window.clearInterval(petsId);
+    };
+  });
+
+  $effect(() => {
+    const pet = activePet;
+    let cancelled = false;
+    activeSpriteUrl = "";
+
+    if (!pet) {
+      return;
+    }
+
+    getPetSpriteUrl(pet).then((url) => {
+      if (!cancelled) {
+        activeSpriteUrl = url;
+      }
+    });
+
+    return () => {
+      cancelled = true;
     };
   });
 
@@ -90,9 +111,9 @@
   onpointercancel={endDrag}
   ondblclick={() => setScene("jumping")}
 >
-  {#if activePet}
+  {#if activePet && activeSpriteUrl}
     <SpritePet
-      imageUrl={spriteUrl(activePet.spritesheetPath)}
+      imageUrl={activeSpriteUrl}
       state={runtime.scene}
       scale={runtime.scale}
     />
