@@ -1,0 +1,273 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #1b1f1d;
+  background: #f5f3ee;
+  font-synthesis: none;
+  line-height: 1.4;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: transparent;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  min-height: 34px;
+  border: 1px solid #c7c5bc;
+  border-radius: 7px;
+  color: #1b1f1d;
+  background: #fffdf8;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+button:hover {
+  border-color: #779b80;
+  background: #f6faf5;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button.active {
+  border-color: #2f7d4f;
+  background: #dff0e3;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #c7c5bc;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #1b1f1d;
+  background: #fffdf8;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(360px, 1fr) 300px;
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(47, 125, 79, 0.06), transparent 42%),
+    #f5f3ee;
+}
+
+.library,
+.importer {
+  padding: 22px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.library {
+  border-right: 1px solid #ddd8cc;
+}
+
+.importer {
+  border-left: 1px solid #ddd8cc;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, #2f7d4f 0 50%, #202523 50%),
+    #2f7d4f;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+  line-height: 1;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+p,
+small,
+label span,
+.source-note,
+.status {
+  color: #676b64;
+}
+
+.pet-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pet-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-rows: auto minmax(260px, 1fr) auto;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 26px 0;
+}
+
+.topbar p {
+  max-width: 620px;
+  margin-top: 6px;
+}
+
+.status {
+  min-width: 86px;
+  border: 1px solid #d6d1c5;
+  border-radius: 7px;
+  padding: 6px 10px;
+  text-align: center;
+  background: #fffdf8;
+}
+
+.status.busy {
+  color: #2f7d4f;
+}
+
+.stage {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  padding: 26px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "scenes scenes"
+    "scale task";
+  align-items: center;
+  gap: 14px;
+  padding: 0 26px 24px;
+}
+
+.scene-grid {
+  grid-area: scenes;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.scene-grid button {
+  min-width: 0;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.scale-control {
+  grid-area: scale;
+  display: grid;
+  grid-template-columns: auto 120px 48px;
+  align-items: center;
+  gap: 10px;
+}
+
+.controls > button {
+  grid-area: task;
+  min-width: 112px;
+}
+
+.scale-control input {
+  min-height: 0;
+  padding: 0;
+}
+
+.importer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.importer label {
+  display: grid;
+  gap: 6px;
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.source-note {
+  margin-top: auto;
+  border-top: 1px solid #ddd8cc;
+  padding-top: 14px;
+  font-size: 13px;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 180px minmax(320px, 1fr);
+  }
+
+  .importer {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid #ddd8cc;
+  }
+
+  .scene-grid {
+    grid-template-columns: repeat(3, minmax(80px, 1fr));
+  }
+
+  .controls {
+    grid-template-columns: 1fr;
+  }
+}
