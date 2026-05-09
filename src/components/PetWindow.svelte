@@ -20,6 +20,9 @@
     scale: 1,
   });
   let activeSpriteUrl = $state("");
+  let dragTracker: number | undefined;
+  let lastDragX: number | null = null;
+  let lastDragScene: RuntimeState["scene"] | null = null;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -78,21 +81,64 @@
       return;
     }
 
-    await setScene("waving");
-
     if (!isTauri()) {
+      await setScene("waving");
       return;
     }
 
-    await getCurrentWindow().startDragging();
+    const window = getCurrentWindow();
+    const position = await window.outerPosition();
+    lastDragX = position.x;
+    lastDragScene = null;
+    beginDragTracker();
+    await setScene("waving");
+    await window.startDragging();
   }
 
   async function endDrag() {
+    stopDragTracker();
     if (isTauri()) {
       const position = await getCurrentWindow().outerPosition();
       await setPetWindowPosition({ x: position.x, y: position.y });
     }
     await setScene("idle");
+  }
+
+  function beginDragTracker() {
+    stopDragTracker();
+    dragTracker = window.setInterval(trackDragDirection, 80);
+  }
+
+  function stopDragTracker() {
+    if (dragTracker) {
+      window.clearInterval(dragTracker);
+      dragTracker = undefined;
+    }
+
+    lastDragX = null;
+    lastDragScene = null;
+  }
+
+  async function trackDragDirection() {
+    if (!isTauri() || lastDragX === null) {
+      return;
+    }
+
+    const position = await getCurrentWindow().outerPosition();
+    const deltaX = position.x - lastDragX;
+
+    if (Math.abs(deltaX) < 2) {
+      return;
+    }
+
+    const nextScene = deltaX > 0 ? "running-right" : "running-left";
+    lastDragX = position.x;
+
+    if (nextScene !== lastDragScene) {
+      lastDragScene = nextScene;
+      await setScene(nextScene);
+      runtime = await getRuntimeState();
+    }
   }
 </script>
 
