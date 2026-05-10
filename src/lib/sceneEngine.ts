@@ -1,6 +1,13 @@
 import type { PetAnimationState } from "./animations";
 
-export type SceneSource = "interaction" | "system" | "movement" | "idle";
+export type SceneSource =
+  | "interaction"
+  | "feedback"
+  | "movement"
+  | "codex"
+  | "focus"
+  | "system"
+  | "idle";
 
 export interface SceneEvent {
   source: SceneSource;
@@ -16,16 +23,22 @@ export interface ScheduledScene {
 }
 
 const PRIORITY: Record<SceneSource, number> = {
-  interaction: 4,
+  interaction: 6,
+  movement: 6,
+  feedback: 5,
+  codex: 4,
+  focus: 3,
   system: 3,
-  movement: 2,
   idle: 1,
 };
 
 const DEFAULT_LOCK_MS: Record<SceneSource, number> = {
   interaction: 900,
+  feedback: 1200,
   system: 1200,
-  movement: 500,
+  movement: 0,
+  codex: 0,
+  focus: 0,
   idle: 0,
 };
 

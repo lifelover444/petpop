@@ -1,8 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { DEFAULT_ACTION_MAP, type PetActionMap } from "./actions";
 import type { PetAnimationState } from "./animations";
-import sakikoSpriteUrl from "../../sakiko/spritesheet.webp?url";
-import taffySpriteUrl from "../../taffy/spritesheet.webp?url";
 
 export interface PetInfo {
   id: string;
@@ -12,12 +11,16 @@ export interface PetInfo {
   sourceKind: string;
   sourceUrl?: string | null;
   scale: number;
+  actionMap: PetActionMap;
 }
 
 export interface RuntimeState {
   activePetId?: string | null;
   scene: PetAnimationState;
   scale: number;
+  focusState: FocusState;
+  codexActivity: CodexActivity;
+  codexActivityError?: string | null;
 }
 
 export interface PetWindowPosition {
@@ -25,33 +28,73 @@ export interface PetWindowPosition {
   y: number;
 }
 
+export type FocusMode = "idle" | "focus" | "break";
+export type FocusStatus = "idle" | "running" | "paused" | "complete";
+export type CodexActivityStatus =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "review"
+  | "success"
+  | "error";
+
+export interface FocusState {
+  mode: FocusMode;
+  status: FocusStatus;
+  lastEvent?: string | null;
+  remainingMs?: number | null;
+  endsAt?: number | null;
+  updatedAt: number;
+}
+
+export interface CodexActivity {
+  status: CodexActivityStatus;
+  message?: string | null;
+  updatedAt: number;
+}
+
+export interface AppSettings {
+  focusMinutes: number;
+  breakMinutes: number;
+}
+
 export const isTauri = () => Boolean(window.__TAURI_INTERNALS__);
 
-const demoPets: PetInfo[] = [
-  {
-    id: "taffy",
-    displayName: "Taffy",
-    description:
-      "A cute chibi digital pet inspired by the VTuber Ace Taffy, a pink-haired detective-inventor.",
-    spritesheetPath: taffySpriteUrl,
-    sourceKind: "demo",
-    scale: 1,
-  },
-  {
-    id: "sakiko",
-    displayName: "Sakiko",
-    description:
-      "A tiny chibi digital pet with pale blue twin-tail hair and a burgundy gothic idol outfit.",
-    spritesheetPath: sakikoSpriteUrl,
-    sourceKind: "demo",
-    scale: 1,
-  },
-];
+export function sourceKindLabel(sourceKind: string) {
+  switch (sourceKind) {
+    case "local":
+      return "本地导入";
+    case "codex":
+      return "Codex";
+    case "petdex":
+      return "PetDex";
+    case "browser":
+      return "浏览器预览";
+    case "unknown":
+      return "未知来源";
+    default:
+      return sourceKind;
+  }
+}
 
 let browserRuntime: RuntimeState = {
-  activePetId: "taffy",
+  activePetId: null,
   scene: "idle",
-  scale: 1,
+  scale: 0.5,
+  focusState: {
+    mode: "idle",
+    status: "idle",
+    lastEvent: null,
+    remainingMs: null,
+    endsAt: null,
+    updatedAt: Date.now(),
+  },
+  codexActivity: {
+    status: "idle",
+    message: null,
+    updatedAt: 0,
+  },
+  codexActivityError: null,
 };
 const spriteDataUrlCache = new Map<string, string>();
 
@@ -76,7 +119,7 @@ export async function getPetSpriteUrl(pet: PetInfo): Promise<string> {
 
 export async function listPets(): Promise<PetInfo[]> {
   if (!isTauri()) {
-    return demoPets;
+    return [];
   }
 
   return invoke<PetInfo[]>("list_pets");
@@ -84,7 +127,7 @@ export async function listPets(): Promise<PetInfo[]> {
 
 export async function importPetFromPath(path: string): Promise<PetInfo> {
   if (!isTauri()) {
-    throw new Error("Local import requires the desktop app.");
+    throw new Error("本地导入需要在桌面应用中使用。");
   }
 
   const pet = await invoke<PetInfo>("import_pet_from_path", { path });
@@ -94,7 +137,7 @@ export async function importPetFromPath(path: string): Promise<PetInfo> {
 
 export async function importPetdex(input: string): Promise<PetInfo> {
   if (!isTauri()) {
-    throw new Error("PetDex import requires the desktop app.");
+    throw new Error("PetDex 导入需要在桌面应用中使用。");
   }
 
   const pet = await invoke<PetInfo>("import_petdex", { input });
@@ -104,12 +147,32 @@ export async function importPetdex(input: string): Promise<PetInfo> {
 
 export async function scanCodexPets(): Promise<PetInfo[]> {
   if (!isTauri()) {
-    return demoPets;
+    return [];
   }
 
   const pets = await invoke<PetInfo[]>("scan_codex_pets");
   spriteDataUrlCache.clear();
   return pets;
+}
+
+export async function setPetActionMap(
+  petId: string,
+  actionMap: PetActionMap,
+): Promise<PetInfo> {
+  if (!isTauri()) {
+    return {
+      id: petId,
+      displayName: petId,
+      description: "",
+      spritesheetPath: "",
+      sourceKind: "browser",
+      sourceUrl: null,
+      scale: 0.5,
+      actionMap: { ...DEFAULT_ACTION_MAP, ...actionMap },
+    };
+  }
+
+  return invoke<PetInfo>("set_pet_action_map", { petId, actionMap });
 }
 
 export async function chooseImportPath(
@@ -125,8 +188,8 @@ export async function chooseImportPath(
     filters:
       kind === "file"
         ? [
-            { name: "Pet package", extensions: ["zip"] },
-            { name: "All files", extensions: ["*"] },
+            { name: "宠物包", extensions: ["zip"] },
+            { name: "所有文件", extensions: ["*"] },
           ]
         : undefined,
   });
@@ -167,12 +230,51 @@ export async function setScene(
 }
 
 export async function setScale(scale: number): Promise<RuntimeState> {
+  const nextScale = Math.max(0.1, Math.min(1, scale));
+
   if (!isTauri()) {
-    browserRuntime = { ...browserRuntime, scale };
+    browserRuntime = { ...browserRuntime, scale: nextScale };
     return browserRuntime;
   }
 
-  return invoke<RuntimeState>("set_scale", { scale });
+  return invoke<RuntimeState>("set_scale", { scale: nextScale });
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  if (!isTauri()) {
+    return { focusMinutes: 25, breakMinutes: 5 };
+  }
+
+  return invoke<AppSettings>("get_app_settings");
+}
+
+export async function setAppSettings(
+  settings: AppSettings,
+): Promise<AppSettings> {
+  const nextSettings = {
+    focusMinutes: Math.max(1, Math.min(180, Math.round(settings.focusMinutes))),
+    breakMinutes: Math.max(1, Math.min(60, Math.round(settings.breakMinutes))),
+  };
+
+  if (!isTauri()) {
+    return nextSettings;
+  }
+
+  return invoke<AppSettings>("set_app_settings", nextSettings);
+}
+
+export async function setFocusState(
+  focusState: Omit<FocusState, "updatedAt">,
+): Promise<RuntimeState> {
+  if (!isTauri()) {
+    browserRuntime = {
+      ...browserRuntime,
+      focusState: { ...focusState, updatedAt: Date.now() },
+    };
+    return browserRuntime;
+  }
+
+  return invoke<RuntimeState>("set_focus_state", focusState);
 }
 
 export async function getPetWindowPosition(): Promise<PetWindowPosition> {

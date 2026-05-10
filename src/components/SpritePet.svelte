@@ -10,7 +10,7 @@
   let {
     imageUrl,
     state: animationState = "idle",
-    scale = 1,
+    scale = 0.5,
     paused = false,
   }: {
     imageUrl: string;
@@ -23,6 +23,7 @@
   let timer: number | undefined;
 
   $effect(() => {
+    void animationState;
     frame = 0;
   });
 

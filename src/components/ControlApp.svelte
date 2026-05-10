@@ -1,8 +1,23 @@
 <script lang="ts">
   import SpritePet from "./SpritePet.svelte";
+  import {
+    ACTION_EVENTS,
+    normalizeActionMap,
+    type PetActionEvent,
+    type PetActionMap,
+  } from "../lib/actions";
   import { ANIMATION_ROWS, type PetAnimationState } from "../lib/animations";
+  import { actionSceneEvent, runtimeSceneEvents } from "../lib/runtimeScene";
+  import {
+    initialScene,
+    selectScene,
+    type ScheduledScene,
+    type SceneEvent,
+    type SceneSource,
+  } from "../lib/sceneEngine";
   import {
     chooseImportPath,
+    getAppSettings,
     getPetSpriteUrl,
     getRuntimeState,
     importPetFromPath,
@@ -10,8 +25,14 @@
     listPets,
     scanCodexPets,
     setActivePet,
+    setAppSettings,
+    setFocusState,
+    setPetActionMap,
     setScale,
     setScene,
+    sourceKindLabel,
+    type AppSettings,
+    type FocusMode,
     type PetInfo,
     type RuntimeState,
   } from "../lib/petpop";
@@ -20,19 +41,57 @@
   let runtime = $state<RuntimeState>({
     activePetId: null,
     scene: "idle",
-    scale: 1,
+    scale: 0.5,
+    focusState: {
+      mode: "idle",
+      status: "idle",
+      lastEvent: null,
+      remainingMs: null,
+      endsAt: null,
+      updatedAt: Date.now(),
+    },
+    codexActivity: {
+      status: "idle",
+      message: null,
+      updatedAt: 0,
+    },
+    codexActivityError: null,
   });
   let importPath = $state("");
   let petdexInput = $state("");
-  let status = $state("Ready");
+  let status = $state("就绪");
   let busy = $state(false);
-  let taskRunning = $state(false);
   let lastInteraction = Date.now();
+  let clockNow = $state(Date.now());
   let activeSpriteUrl = $state("");
+  let actionMapDraft = $state<PetActionMap>({});
+  let appSettings = $state<AppSettings>({
+    focusMinutes: 25,
+    breakMinutes: 5,
+  });
+  let scheduledScene: ScheduledScene = initialScene();
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
   );
+  const activeActionMap = $derived(normalizeActionMap(activePet?.actionMap));
+  const actionEventGroups = $derived([
+    {
+      title: "基础交互",
+      events: ACTION_EVENTS.filter((item) => item.group === "basic"),
+    },
+    {
+      title: "Codex",
+      events: ACTION_EVENTS.filter((item) => item.group === "codex"),
+    },
+    {
+      title: "专注模式",
+      events: ACTION_EVENTS.filter((item) => item.group === "focus"),
+    },
+  ]);
+  const focusRemainingMs = $derived(currentFocusRemainingMs(clockNow));
+  const focusLabel = $derived(formatDuration(focusRemainingMs));
+  const codexStatusLabel = $derived(codexLabel(runtime.codexActivity.status));
 
   async function refresh() {
     const [nextPets, nextRuntime] = await Promise.all([
@@ -45,6 +104,11 @@
     if (!nextRuntime.activePetId && nextPets[0]) {
       runtime = await setActivePet(nextPets[0].id);
     }
+    await reconcileScene();
+  }
+
+  async function loadSettings() {
+    appSettings = await getAppSettings();
   }
 
   async function runAction<T>(message: string, action: () => Promise<T>) {
@@ -53,12 +117,12 @@
 
     try {
       await action();
-      status = "Done";
-      await setScene("jumping");
+      status = "已完成";
+      await triggerAction("success");
       await refresh();
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
-      await setScene("failed");
+      await triggerAction("error");
       await refresh();
     } finally {
       busy = false;
@@ -66,19 +130,21 @@
   }
 
   async function selectPet(id: string) {
+    const selected = pets.find((pet) => pet.id === id);
     runtime = await setActivePet(id);
-    await setScene("waving");
+    await triggerAction("click", selected?.actionMap);
     await refresh();
   }
 
   async function importPathNow() {
     if (!importPath.trim()) {
-      status = "Choose a package or folder path";
+      status = "请选择宠物包或文件夹路径";
       return;
     }
 
-    await runAction("Importing", async () => {
-      await importPetFromPath(importPath.trim());
+    await runAction("正在导入", async () => {
+      const pet = await importPetFromPath(importPath.trim());
+      runtime = await setActivePet(pet.id);
       importPath = "";
     });
   }
@@ -92,52 +158,282 @@
 
   async function importPetdexNow() {
     if (!petdexInput.trim()) {
-      status = "Enter a PetDex id or URL";
+      status = "请输入 PetDex ID 或链接";
       return;
     }
 
-    await runAction("Importing from PetDex", async () => {
-      await importPetdex(petdexInput.trim());
+    await runAction("正在从 PetDex 导入", async () => {
+      const pet = await importPetdex(petdexInput.trim());
+      runtime = await setActivePet(pet.id);
       petdexInput = "";
     });
   }
 
   async function scanCodexNow() {
-    await runAction("Scanning Codex pets", async () => {
-      await scanCodexPets();
+    await runAction("正在扫描 Codex 宠物", async () => {
+      const imported = await scanCodexPets();
+      if (imported[0]) {
+        runtime = await setActivePet(imported[0].id);
+      }
     });
+  }
+
+  async function triggerAction(event: PetActionEvent, actionMap = activePet?.actionMap) {
+    lastInteraction = Date.now();
+    await applyActionScene(event, "interaction", 900, actionMap);
   }
 
   async function triggerScene(state: PetAnimationState) {
     lastInteraction = Date.now();
+    scheduledScene = {
+      state,
+      source: "interaction",
+      lockedUntil: Date.now() + 900,
+    };
     runtime = await setScene(state);
-  }
-
-  async function toggleTask() {
-    taskRunning = !taskRunning;
-    await triggerScene(taskRunning ? "running" : "idle");
   }
 
   async function updateScale(value: number) {
     runtime = await setScale(value);
   }
 
+  async function applyActionScene(
+    event: PetActionEvent,
+    source: SceneSource,
+    minDurationMs: number,
+    actionMap = activePet?.actionMap,
+  ) {
+    const now = Date.now();
+    const sceneEvent: SceneEvent = actionSceneEvent(
+      actionMap,
+      event,
+      source,
+      now,
+      minDurationMs,
+    );
+    scheduledScene = selectScene(
+      scheduledScene,
+      [...ambientSceneEvents(now), sceneEvent],
+      now,
+    );
+    runtime = await setScene(scheduledScene.state);
+  }
+
+  async function reconcileScene() {
+    if (!activePet) {
+      return;
+    }
+
+    const now = Date.now();
+    scheduledScene = selectScene(scheduledScene, ambientSceneEvents(now), now);
+    if (scheduledScene.state !== runtime.scene) {
+      runtime = await setScene(scheduledScene.state);
+    }
+  }
+
+  function ambientSceneEvents(now: number) {
+    return runtimeSceneEvents(
+      runtime,
+      activePet?.actionMap,
+      now,
+      now - lastInteraction,
+    );
+  }
+
+  async function saveFocusSettings() {
+    appSettings = await setAppSettings(appSettings);
+    status = "专注设置已保存";
+  }
+
+  async function updateFocusMinutes(value: number) {
+    appSettings = {
+      ...appSettings,
+      focusMinutes: Math.max(1, Math.min(180, Math.round(value || 1))),
+    };
+    await saveFocusSettings();
+  }
+
+  async function updateBreakMinutes(value: number) {
+    appSettings = {
+      ...appSettings,
+      breakMinutes: Math.max(1, Math.min(60, Math.round(value || 1))),
+    };
+    await saveFocusSettings();
+  }
+
+  async function startFocus() {
+    await startTimedState("focus", appSettings.focusMinutes, "focus-start");
+    status = "专注中";
+  }
+
+  async function startBreak() {
+    await startTimedState("break", appSettings.breakMinutes, "break-start");
+    status = "休息中";
+  }
+
+  async function startTimedState(
+    mode: FocusMode,
+    minutes: number,
+    event: PetActionEvent,
+  ) {
+    const durationMs = minutes * 60_000;
+    runtime = await setFocusState({
+      mode,
+      status: "running",
+      lastEvent: event,
+      remainingMs: durationMs,
+      endsAt: Date.now() + durationMs,
+    });
+    await reconcileScene();
+  }
+
+  async function pauseFocus() {
+    runtime = await setFocusState({
+      mode: runtime.focusState.mode,
+      status: "paused",
+      lastEvent: "focus-pause",
+      remainingMs: currentFocusRemainingMs(Date.now()),
+      endsAt: null,
+    });
+    status = runtime.focusState.mode === "break" ? "休息已暂停" : "专注已暂停";
+    await reconcileScene();
+  }
+
+  async function resumeFocus() {
+    const remainingMs = Math.max(1000, currentFocusRemainingMs(Date.now()));
+    const event =
+      runtime.focusState.mode === "break" ? "break-start" : "focus-resume";
+    runtime = await setFocusState({
+      mode: runtime.focusState.mode,
+      status: "running",
+      lastEvent: event,
+      remainingMs,
+      endsAt: Date.now() + remainingMs,
+    });
+    status = runtime.focusState.mode === "break" ? "休息中" : "专注中";
+    await reconcileScene();
+  }
+
+  async function completeFocus() {
+    const isBreak = runtime.focusState.mode === "break";
+    runtime = await setFocusState({
+      mode: runtime.focusState.mode,
+      status: "complete",
+      lastEvent: isBreak ? "break-complete" : "focus-complete",
+      remainingMs: 0,
+      endsAt: null,
+    });
+    status = isBreak ? "休息完成" : "专注完成";
+    await reconcileScene();
+  }
+
+  async function cancelFocus() {
+    runtime = await setFocusState({
+      mode: "idle",
+      status: "idle",
+      lastEvent: "focus-cancel",
+      remainingMs: null,
+      endsAt: null,
+    });
+    status = "专注已结束";
+    await reconcileScene();
+  }
+
+  function currentFocusRemainingMs(now: number) {
+    const { focusState } = runtime;
+    if (focusState.mode === "idle") {
+      return appSettings.focusMinutes * 60_000;
+    }
+    if (focusState.status === "running" && focusState.endsAt) {
+      return Math.max(0, focusState.endsAt - now);
+    }
+    return Math.max(0, focusState.remainingMs ?? 0);
+  }
+
+  function formatDuration(value: number) {
+    const totalSeconds = Math.ceil(value / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, "0")}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  function codexLabel(status: RuntimeState["codexActivity"]["status"]) {
+    switch (status) {
+      case "running":
+        return "运行中";
+      case "waiting":
+        return "等待输入";
+      case "review":
+        return "审阅";
+      case "success":
+        return "成功";
+      case "error":
+        return "失败";
+      default:
+        return "空闲";
+    }
+  }
+
+  async function updateMappedAction(
+    event: PetActionEvent,
+    state: PetAnimationState,
+  ) {
+    const nextMap = { ...actionMapDraft, [event]: state };
+    actionMapDraft = nextMap;
+    await persistActionMap(nextMap, false);
+  }
+
+  async function saveActionMap() {
+    await persistActionMap(actionMapDraft, true);
+  }
+
+  async function persistActionMap(actionMap: PetActionMap, showBusy: boolean) {
+    if (!activePet) {
+      return;
+    }
+
+    if (showBusy) {
+      busy = true;
+      status = "正在保存动作映射";
+    }
+
+    try {
+      const pet = await setPetActionMap(activePet.id, actionMap);
+      pets = pets.map((item) => (item.id === pet.id ? pet : item));
+      actionMapDraft = normalizeActionMap(pet.actionMap);
+      status = showBusy ? "动作映射已保存" : "已自动保存动作映射";
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      await triggerAction("error");
+    } finally {
+      if (showBusy) {
+        busy = false;
+      }
+    }
+  }
+
   $effect(() => {
+    loadSettings();
     refresh();
-    const id = window.setInterval(async () => {
-      if (taskRunning) {
-        await setScene("running");
-        await refresh();
-        return;
+    const refreshId = window.setInterval(refresh, 1000);
+    const clockId = window.setInterval(() => {
+      const now = Date.now();
+      clockNow = now;
+      if (
+        runtime.focusState.status === "running" &&
+        runtime.focusState.endsAt &&
+        runtime.focusState.endsAt <= now
+      ) {
+        void completeFocus();
       }
+    }, 500);
 
-      if (Date.now() - lastInteraction > 60_000) {
-        await setScene("waiting");
-        await refresh();
-      }
-    }, 5000);
-
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(refreshId);
+      window.clearInterval(clockId);
+    };
   });
 
   $effect(() => {
@@ -165,6 +461,11 @@
       cancelled = true;
     };
   });
+
+  $effect(() => {
+    actionMapDraft = normalizeActionMap(activePet?.actionMap);
+    JSON.stringify(activePet?.actionMap ?? {});
+  });
 </script>
 
 <main class="app-shell">
@@ -173,20 +474,24 @@
       <span class="mark"></span>
       <div>
         <h1>PetPop</h1>
-        <p>Codex pet runtime</p>
+        <p>通用桌宠运行时</p>
       </div>
     </div>
 
-    <div class="pet-list" aria-label="Pet library">
-      {#each pets as pet}
-        <button
-          class:active={pet.id === activePet?.id}
-          onclick={() => selectPet(pet.id)}
-        >
-          <span>{pet.displayName}</span>
-          <small>{pet.sourceKind}</small>
-        </button>
-      {/each}
+    <div class="pet-list" aria-label="宠物库">
+      {#if pets.length === 0}
+        <div class="empty-list">还没有导入宠物</div>
+      {:else}
+        {#each pets as pet}
+          <button
+            class:active={pet.id === activePet?.id}
+            onclick={() => selectPet(pet.id)}
+          >
+            <span>{pet.displayName}</span>
+            <small>{sourceKindLabel(pet.sourceKind)}</small>
+          </button>
+        {/each}
+      {/if}
     </div>
   </section>
 
@@ -197,8 +502,8 @@
   >
     <header class="topbar">
       <div>
-        <h2>{activePet?.displayName ?? "No pet"}</h2>
-        <p>{activePet?.description ?? "Import a Codex-compatible pet package."}</p>
+        <h2>{activePet?.displayName ?? "未选择宠物"}</h2>
+        <p>{activePet?.description ?? "请在桌面应用中导入 Codex 兼容宠物包。"}</p>
       </div>
       <div class="status" class:busy>{status}</div>
     </header>
@@ -211,28 +516,30 @@
           scale={runtime.scale}
         />
       {:else if activePet}
-        <div class="stage-message">Loading sprite</div>
+        <div class="stage-message">正在加载精灵图</div>
+      {:else}
+        <div class="stage-message">还没有导入宠物</div>
       {/if}
     </div>
 
     <div class="controls">
       <div class="scene-grid">
         {#each ANIMATION_ROWS as row}
-          <button
-            class:active={runtime.scene === row.state}
-            onclick={() => triggerScene(row.state)}
-          >
-            {row.label}
-          </button>
-        {/each}
+        <button
+          class:active={runtime.scene === row.state}
+          onclick={() => triggerScene(row.state)}
+        >
+          {row.label}
+        </button>
+      {/each}
       </div>
 
       <label class="scale-control">
-        <span>Scale</span>
+        <span>缩放</span>
         <input
           type="range"
-          min="0.5"
-          max="2"
+          min="0.1"
+          max="1"
           step="0.05"
           value={runtime.scale}
           oninput={(event) =>
@@ -241,36 +548,130 @@
         <strong>{runtime.scale.toFixed(2)}x</strong>
       </label>
 
-      <button class:active={taskRunning} onclick={toggleTask}>
-        {taskRunning ? "Stop task" : "Start task"}
-      </button>
+      <div class="runtime-status">
+        <span>Codex</span>
+        <strong>{codexStatusLabel}</strong>
+        {#if runtime.codexActivityError}
+          <small>{runtime.codexActivityError}</small>
+        {:else if runtime.codexActivity.message}
+          <small>{runtime.codexActivity.message}</small>
+        {/if}
+      </div>
+    </div>
+
+    <div class="focus-panel">
+      <div class="focus-meter">
+        <span>{runtime.focusState.mode === "break" ? "休息" : "专注"}</span>
+        <strong>{focusLabel}</strong>
+        <small>
+          {runtime.focusState.status === "running"
+            ? "进行中"
+            : runtime.focusState.status === "paused"
+              ? "已暂停"
+              : runtime.focusState.status === "complete"
+                ? "已完成"
+                : "未开始"}
+        </small>
+      </div>
+
+      <label>
+        <span>专注分钟</span>
+        <input
+          type="number"
+          min="1"
+          max="180"
+          value={appSettings.focusMinutes}
+          onchange={(event) =>
+            updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
+        />
+      </label>
+
+      <label>
+        <span>休息分钟</span>
+        <input
+          type="number"
+          min="1"
+          max="60"
+          value={appSettings.breakMinutes}
+          onchange={(event) =>
+            updateBreakMinutes(Number((event.target as HTMLInputElement).value))}
+        />
+      </label>
+
+      <div class="focus-actions">
+        {#if runtime.focusState.status === "running"}
+          <button onclick={pauseFocus}>暂停</button>
+          <button onclick={completeFocus}>完成</button>
+          <button onclick={cancelFocus}>结束</button>
+        {:else if runtime.focusState.status === "paused"}
+          <button onclick={resumeFocus}>继续</button>
+          <button onclick={completeFocus}>完成</button>
+          <button onclick={cancelFocus}>结束</button>
+        {:else}
+          <button onclick={startFocus}>开始专注</button>
+          <button onclick={startBreak}>开始休息</button>
+        {/if}
+      </div>
+    </div>
+
+    <div class="action-map">
+      <div class="action-map-header">
+        <h2>动作映射</h2>
+        <button disabled={busy || !activePet} onclick={saveActionMap}>保存</button>
+      </div>
+      <div class="action-map-sections">
+        {#each actionEventGroups as group}
+          <section>
+            <h3>{group.title}</h3>
+            <div class="action-map-grid">
+              {#each group.events as item}
+                <label>
+                  <span>{item.label}</span>
+                  <select
+                    disabled={!activePet}
+                    value={actionMapDraft[item.event] ?? activeActionMap[item.event]}
+                    onchange={(event) =>
+                      updateMappedAction(
+                        item.event,
+                        (event.target as HTMLSelectElement).value as PetAnimationState,
+                      )}
+                  >
+                    {#each ANIMATION_ROWS as row}
+                      <option value={row.state}>{row.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/each}
+            </div>
+          </section>
+        {/each}
+      </div>
     </div>
   </section>
 
   <aside class="importer">
-    <h2>Import</h2>
+    <h2>导入</h2>
 
     <label>
-      <span>Package path</span>
+      <span>宠物包路径</span>
       <div class="input-row">
-        <input bind:value={importPath} placeholder="zip or pet folder" />
-        <button onclick={() => pickPath("file")}>Zip</button>
-        <button onclick={() => pickPath("folder")}>Folder</button>
+        <input bind:value={importPath} placeholder="zip 文件或宠物文件夹" />
+        <button onclick={() => pickPath("file")}>选择 Zip</button>
+        <button onclick={() => pickPath("folder")}>文件夹</button>
       </div>
     </label>
-    <button disabled={busy} onclick={importPathNow}>Import local</button>
+    <button disabled={busy} onclick={importPathNow}>导入本地宠物</button>
 
     <label>
       <span>PetDex</span>
-      <input bind:value={petdexInput} placeholder="boba or PetDex URL" />
+      <input bind:value={petdexInput} placeholder="boba 或 PetDex 链接" />
     </label>
-    <button disabled={busy} onclick={importPetdexNow}>Import PetDex</button>
+    <button disabled={busy} onclick={importPetdexNow}>导入 PetDex 宠物</button>
 
-    <button disabled={busy} onclick={scanCodexNow}>Scan Codex pets</button>
+    <button disabled={busy} onclick={scanCodexNow}>扫描 Codex 宠物</button>
 
     <div class="source-note">
-      PetDex pets are user-submitted fan art. PetPop stores only pets you
-      import.
+      PetDex 宠物来自用户提交。PetPop 只保存你主动导入的宠物。
     </div>
   </aside>
 </main>

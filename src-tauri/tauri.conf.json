@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "PetPop",
+        "title": "PetPop 桌宠",
         "width": 1040,
         "height": 700,
         "minWidth": 860,
@@ -23,7 +23,7 @@
       },
       {
         "label": "pet",
-        "title": "PetPop Pet",
+        "title": "PetPop 桌宠窗口",
         "width": 192,
         "height": 208,
         "resizable": false,

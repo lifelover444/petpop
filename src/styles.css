@@ -36,7 +36,8 @@ body.pet-runtime #app {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -72,7 +73,8 @@ button:disabled {
   opacity: 0.6;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 34px;
   border: 1px solid #c7c5bc;
@@ -201,7 +203,7 @@ label span,
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     "scenes scenes"
-    "scale task";
+    "scale status";
   align-items: center;
   gap: 14px;
   padding: 0 26px 24px;
@@ -228,14 +230,66 @@ label span,
   gap: 10px;
 }
 
-.controls > button {
-  grid-area: task;
-  min-width: 112px;
-}
-
 .scale-control input {
   min-height: 0;
   padding: 0;
+}
+
+.runtime-status {
+  grid-area: status;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 180px;
+  border-left: 1px solid #ddd8cc;
+  padding-left: 14px;
+}
+
+.runtime-status span,
+.runtime-status small,
+.focus-meter span,
+.focus-meter small {
+  color: #676b64;
+}
+
+.runtime-status small {
+  grid-column: 1 / -1;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-panel {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 110px 110px auto;
+  align-items: end;
+  gap: 12px;
+  border-top: 1px solid #ddd8cc;
+  padding: 18px 26px;
+}
+
+.focus-meter {
+  display: grid;
+  gap: 2px;
+}
+
+.focus-meter strong {
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.focus-panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.focus-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .importer {
@@ -247,6 +301,54 @@ label span,
 .importer label {
   display: grid;
   gap: 6px;
+}
+
+.action-map {
+  border-top: 1px solid #ddd8cc;
+  padding: 0 26px 24px;
+}
+
+.action-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.action-map-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.action-map-sections section {
+  display: grid;
+  gap: 10px;
+}
+
+.action-map-sections h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #1b1f1d;
+}
+
+.action-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.action-map-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.empty-list {
+  border: 1px dashed #c7c5bc;
+  border-radius: 7px;
+  padding: 10px;
+  color: #676b64;
+  font-size: 14px;
 }
 
 .input-row {
@@ -284,5 +386,24 @@ label span,
 
   .controls {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "scenes"
+      "scale"
+      "status";
+  }
+
+  .runtime-status {
+    border-left: 0;
+    border-top: 1px solid #ddd8cc;
+    padding: 12px 0 0;
+  }
+
+  .focus-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .focus-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
