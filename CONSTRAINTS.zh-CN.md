@@ -26,6 +26,8 @@ PetPop 是一个 Windows 优先的轻量桌宠运行时，用来运行 Codex 兼
 - 扫描 Codex 宠物时只读取 `%USERPROFILE%/.codex/pets`，不要修改它。
 - 不能改写 Codex 原生 `pet.json` 语义。
 - PetPop 自己的扩展信息写入 `petpop.pet.json`。
+- 全局应用设置写入 `%APPDATA%/PetPop/settings.json`，目前用于保存专注和休息默认时长。
+- Codex 状态桥文件为 `%APPDATA%/PetPop/codex-activity.json`，只读轮询，不解析 `~/.codex` 日志或 SQLite。
 - 不把 PetDex 第三方宠物预置进应用包。用户必须主动导入。
 - 仓库中的 `taffy`、`sakiko` 是样例宠物，不应在运行时被修改。
 
@@ -57,6 +59,7 @@ PetPop 是一个 Windows 优先的轻量桌宠运行时，用来运行 Codex 兼
   - 松手：`idle`
 - 双击宠物触发 `jumping`。
 - 开始拖动或唤醒可以触发 `waving`。
+- 缩放范围固定为 `0.1x` 到 `1.0x`，默认 `0.5x`。前端控件、浏览器 fallback、Rust clamp 和读取旧 metadata 时都要保持一致。
 
 ## 动作映射约束
 
@@ -75,6 +78,47 @@ Codex 的动作状态需要映射到通用桌面场景：
 | `running-right` | 向右移动 |
 
 不要随意新增或改名状态；如果必须变更，要同步更新动画表、UI、运行时状态和测试。
+
+PetPop 可以新增动作事件，但不能新增 Codex 动画状态。动作事件需要同时更新：
+
+- 前端 `src/lib/actions.ts`
+- Rust `PET_ACTION_EVENTS` 和 `default_action_map`
+- 动作映射 UI 分组
+- 相关单元测试
+
+当前动作事件分为：
+
+- 基础交互：拖拽、点击、双击、空闲、等待、成功、失败、审阅。
+- Codex：`codex-running`、`codex-waiting`、`codex-review`、`codex-success`、`codex-error`。
+- 专注模式：`focus-start`、`focus-pause`、`focus-resume`、`focus-complete`、`focus-cancel`、`break-start`、`break-complete`。
+
+运行时场景仲裁优先级为：用户交互和拖拽 > 短反馈 > Codex 状态 > 专注模式 > 空闲/等待。
+
+## 专注模式约束
+
+- 专注模式是轻量计时器，不做任务列表、日报、长休息或自动循环。
+- 默认专注 `25` 分钟，休息 `5` 分钟。
+- 用户手动开始专注、开始休息、暂停、继续、完成或取消。
+- 保存默认时长，不保存进行中的倒计时；重启后回到未开始状态。
+- 专注模式必须复用动作映射，不直接硬编码动画状态。
+
+## Codex 状态桥约束
+
+- 状态桥文件路径是 `%APPDATA%/PetPop/codex-activity.json`。
+- 支持状态：`idle`、`running`、`waiting`、`review`、`success`、`error`。
+- 最小 JSON：
+
+```json
+{
+  "status": "running",
+  "message": "正在执行任务",
+  "updatedAt": 1770000000000
+}
+```
+
+- `updatedAt` 可以是秒或毫秒时间戳；读取时统一成毫秒。
+- 长时间未更新的运行态应视为过期，不能永久占用桌宠动作。
+- JSON 无效时保留上一次有效状态，并在控制台显示错误。
 
 ## PetDex 约束
 

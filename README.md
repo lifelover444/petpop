@@ -9,8 +9,12 @@ PetPop 是一个 Windows 优先的轻量桌宠软件，用来运行 Codex 兼容
 - 一个透明、置顶、无边框的常驻宠物窗口。
 - 常驻宠物窗口可拖动，并会记住上次位置。
 - 左右拖动时切换 `running-left` / `running-right` 动作。
+- 支持按事件配置动作映射，覆盖基础交互、Codex 状态和专注模式。
+- 支持轻量专注模式，包含专注/休息计时、暂停、继续、完成和取消。
+- 支持 Codex 状态桥文件 `%APPDATA%/PetPop/codex-activity.json`，用于把外部任务状态映射到桌宠动作。
 - 支持本地 zip、宠物文件夹、Codex pets 扫描和 PetDex ID/URL 导入。
 - 导入后的宠物存放在 `%APPDATA%/PetPop/pets/`，不会修改 Codex 原目录。
+- 缩放范围为 `0.1x` 到 `1.0x`，默认 `0.5x`。
 
 ## 宠物格式
 
@@ -37,7 +41,7 @@ PetPop 自己的来源、缩放、位置等扩展信息会写入 `petpop.pet.jso
 
 ## 动作映射
 
-PetPop 复用 Codex 固定 9 行动作，并映射到通用桌面场景：
+PetPop 复用 Codex 固定 9 行动作，并把不同事件映射到这些动作。动画状态本身保持 Codex 兼容，不新增行：
 
 | 动作 | 场景 |
 | --- | --- |
@@ -50,6 +54,38 @@ PetPop 复用 Codex 固定 9 行动作，并映射到通用桌面场景：
 | `waiting` | 长时间无操作 |
 | `running` | 任务进行中 |
 | `review` | 专注、检查、审阅 |
+
+动作事件分为三组：
+
+- 基础交互：拖拽、点击、双击、空闲、成功、失败、审阅。
+- Codex：`codex-running`、`codex-waiting`、`codex-review`、`codex-success`、`codex-error`。
+- 专注模式：`focus-start`、`focus-pause`、`focus-resume`、`focus-complete`、`focus-cancel`、`break-start`、`break-complete`。
+
+运行时会按优先级选择当前动作：用户交互和拖拽优先，其次是短反馈、Codex 状态、专注状态，最后才是空闲或等待。
+
+## 专注模式
+
+专注模式是轻量计时器，不做任务管理或统计报表：
+
+- 默认专注 `25` 分钟，休息 `5` 分钟。
+- 支持开始、暂停、继续、完成、取消专注。
+- 支持手动开始和完成休息。
+- 专注和休息时长保存到 `%APPDATA%/PetPop/settings.json`。
+- 进行中的倒计时不跨重启恢复，重启后回到未开始状态。
+
+## Codex 状态桥
+
+PetPop 会轮询 `%APPDATA%/PetPop/codex-activity.json`，把外部 Codex 或脚本写入的状态映射到桌宠动作。最小格式：
+
+```json
+{
+  "status": "running",
+  "message": "正在执行任务",
+  "updatedAt": 1770000000000
+}
+```
+
+`status` 支持 `idle`、`running`、`waiting`、`review`、`success`、`error`。过期状态会被视为 `idle`；JSON 无效时控制台会显示错误，但不会中断桌宠运行。
 
 ## 运行环境
 
@@ -119,7 +155,9 @@ src/
     SpritePet.svelte    精灵图动画播放器
   lib/
     animations.ts       Codex 动作行表
+    actions.ts          动作事件和默认映射
     petpop.ts          Tauri 命令封装
+    runtimeScene.ts     Codex、专注、空闲状态到 scene 事件的转换
     sceneEngine.ts      场景调度基础逻辑
 src-tauri/
   src/main.rs           导入、校验、PetDex、运行状态和配置持久化

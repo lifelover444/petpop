@@ -20,12 +20,15 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
 
 - Frontend lives in `src/`.
   - `src/lib/animations.ts` owns the Codex row/frame/duration table.
+  - `src/lib/actions.ts` owns PetPop action events and default event-to-animation mapping.
   - `src/lib/petpop.ts` owns Tauri command wrappers and browser-preview fallbacks.
+  - `src/lib/runtimeScene.ts` converts runtime Codex/focus/idle state into scene events.
+  - `src/lib/sceneEngine.ts` owns scene priority and lock scheduling.
   - `src/components/ControlApp.svelte` is the control panel.
   - `src/components/PetWindow.svelte` is the transparent always-on-top runtime pet window.
   - `src/components/SpritePet.svelte` renders one atlas frame by CSS background positioning.
 - Tauri/Rust lives in `src-tauri/`.
-  - `src-tauri/src/main.rs` owns import, validation, PetDex download, runtime state, and persisted window position.
+  - `src-tauri/src/main.rs` owns import, validation, PetDex download, runtime state, focus settings, Codex bridge reads, and persisted window position.
   - `src-tauri/tauri.conf.json` defines the main control window and transparent pet window.
   - `src-tauri/capabilities/default.json` must include permissions for any JS-side Tauri APIs used.
 
@@ -40,6 +43,8 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
   - release maps back to `idle`
   - release persists the window position for the next launch
 - Local sprites are loaded through the Rust command `get_pet_sprite_data_url` so the WebView does not depend on direct filesystem asset permissions.
+- Pet scale is clamped to `0.1..1.0`; default scale is `0.5`.
+- Runtime scene priority is interaction/dragging, then short feedback, then Codex activity, then focus mode, then idle/waiting.
 
 ## Pet Import Rules
 
@@ -64,6 +69,38 @@ Use the fixed Codex rows:
 - `review`: focus/review mode
 
 Do not rename states without updating both the frontend animation table and any Rust/runtime scene calls.
+
+PetPop action events may grow, but they must continue to map onto the fixed Codex rows. Keep frontend and Rust defaults in sync.
+
+Current event groups:
+
+- Basic interaction: drag, click, double click, idle/waiting, success/error/review.
+- Codex: `codex-running`, `codex-waiting`, `codex-review`, `codex-success`, `codex-error`.
+- Focus mode: `focus-start`, `focus-pause`, `focus-resume`, `focus-complete`, `focus-cancel`, `break-start`, `break-complete`.
+
+## Focus Mode
+
+- Focus mode is a lightweight timer, not a task manager.
+- Defaults are 25 minutes focus and 5 minutes break.
+- Persist only settings in `%APPDATA%/PetPop/settings.json`; do not restore an in-progress countdown after restart.
+- Focus and break state must reuse the action mapping pipeline instead of hardcoding animation states.
+
+## Codex Activity Bridge
+
+- PetPop reads `%APPDATA%/PetPop/codex-activity.json`.
+- Supported statuses are `idle`, `running`, `waiting`, `review`, `success`, and `error`.
+- Expected shape:
+
+```json
+{
+  "status": "running",
+  "message": "optional status text",
+  "updatedAt": 1770000000000
+}
+```
+
+- Do not parse `~/.codex` logs or SQLite files for activity state.
+- Invalid bridge JSON should not crash the app; keep the last valid state and surface the error in the control panel.
 
 ## Development Commands
 
