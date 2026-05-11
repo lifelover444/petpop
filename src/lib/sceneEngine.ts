@@ -49,7 +49,11 @@ export function selectScene(
 ): ScheduledScene {
   if (now < current.lockedUntil) {
     const strongerEvent = events
-      .filter((event) => PRIORITY[event.source] > PRIORITY[current.source])
+      .filter(
+        (event) =>
+          PRIORITY[event.source] > PRIORITY[current.source] ||
+          (current.source === "movement" && event.source === "movement"),
+      )
       .sort(compareSceneEvents)[0];
 
     if (!strongerEvent) {

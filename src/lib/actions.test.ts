@@ -2,15 +2,37 @@ import { describe, expect, it } from "vitest";
 import {
   ACTION_EVENTS,
   DEFAULT_ACTION_MAP,
+  VISIBLE_ACTION_EVENTS,
   normalizeActionMap,
   resolvePetAction,
 } from "./actions";
 
 describe("pet action mapping", () => {
   it("covers every desktop action with a default animation", () => {
-    for (const { event } of ACTION_EVENTS) {
+    for (const { event } of VISIBLE_ACTION_EVENTS) {
       expect(DEFAULT_ACTION_MAP[event]).toBeTruthy();
     }
+  });
+
+  it("shows only user-facing basic interactions", () => {
+    const basicEvents = ACTION_EVENTS
+      .filter((item) => item.group === "basic")
+      .map((item) => item.event);
+
+    expect(basicEvents).toEqual([
+      "drag-left",
+      "drag-right",
+      "click",
+      "double-click",
+      "idle",
+      "waiting",
+    ]);
+    expect(basicEvents).not.toContain("drag-start");
+    expect(basicEvents).not.toContain("drag-end");
+    expect(basicEvents).not.toContain("task-running");
+    expect(basicEvents).not.toContain("success");
+    expect(basicEvents).not.toContain("error");
+    expect(basicEvents).not.toContain("review");
   });
 
   it("adds Codex and focus events without adding animation states", () => {
@@ -23,6 +45,15 @@ describe("pet action mapping", () => {
 
   it("lets pets override known actions", () => {
     expect(resolvePetAction({ click: "jumping" }, "click")).toBe("jumping");
+  });
+
+  it("keeps hidden legacy actions compatible", () => {
+    expect(resolvePetAction({ "drag-start": "waving" }, "drag-start")).toBe(
+      "waving",
+    );
+    expect(resolvePetAction({ success: "jumping" }, "success")).toBe(
+      "jumping",
+    );
   });
 
   it("falls back for unknown action keys and invalid animation states", () => {

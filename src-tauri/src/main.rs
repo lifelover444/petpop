@@ -64,6 +64,27 @@ const PET_ACTION_EVENTS: &[&str] = &[
     "break-complete",
 ];
 
+const VISIBLE_PET_ACTION_EVENTS: &[&str] = &[
+    "drag-left",
+    "drag-right",
+    "click",
+    "double-click",
+    "idle",
+    "waiting",
+    "codex-running",
+    "codex-waiting",
+    "codex-review",
+    "codex-success",
+    "codex-error",
+    "focus-start",
+    "focus-pause",
+    "focus-resume",
+    "focus-complete",
+    "focus-cancel",
+    "break-start",
+    "break-complete",
+];
+
 const PET_ANIMATION_STATES: &[&str] = &[
     "idle",
     "running-right",
@@ -291,7 +312,8 @@ fn main() {
             set_pet_action_map,
             get_app_settings,
             set_app_settings,
-            set_focus_state
+            set_focus_state,
+            is_left_mouse_button_pressed
         ])
         .run(tauri::generate_context!())
         .expect("PetPop 运行失败");
@@ -519,11 +541,35 @@ fn set_focus_state(
 }
 
 #[tauri::command]
+fn is_left_mouse_button_pressed() -> bool {
+    left_mouse_button_pressed()
+}
+
+#[cfg(target_os = "windows")]
+fn left_mouse_button_pressed() -> bool {
+    const VK_LBUTTON: i32 = 0x01;
+    const KEY_PRESSED_MASK: i16 = i16::MIN;
+
+    unsafe { (GetAsyncKeyState(VK_LBUTTON) & KEY_PRESSED_MASK) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "user32")]
+extern "system" {
+    fn GetAsyncKeyState(v_key: i32) -> i16;
+}
+
+#[cfg(not(target_os = "windows"))]
+fn left_mouse_button_pressed() -> bool {
+    true
+}
+
+#[tauri::command]
 fn set_pet_action_map(
     pet_id: String,
     action_map: HashMap<String, String>,
 ) -> Result<PetInfo, String> {
-    let normalized = normalize_action_map(Some(action_map))?;
+    let normalized = normalize_stored_action_map(Some(action_map))?;
     let pet_dir = pets_dir()?.join(sanitize_id(&pet_id));
     if !pet_dir.exists() {
         return Err("该宠物尚未导入。".to_string());
@@ -672,7 +718,7 @@ fn default_pet_metadata(kind: &str, url: Option<String>) -> PetPopMetadata {
             url,
         },
         scale: 0.5,
-        action_map: default_action_map(),
+        action_map: default_visible_action_map(),
         position: None,
         imported_at: timestamp(),
     }
@@ -697,7 +743,7 @@ fn default_app_metadata() -> PetPopMetadata {
             url: None,
         },
         scale: 0.5,
-        action_map: default_action_map(),
+        action_map: default_visible_action_map(),
         position: Some(PetPosition { x: 1200, y: 580 }),
         imported_at: timestamp(),
     }
@@ -768,6 +814,13 @@ fn default_action_map() -> HashMap<String, String> {
     ])
 }
 
+fn default_visible_action_map() -> HashMap<String, String> {
+    default_action_map()
+        .into_iter()
+        .filter(|(event, _)| VISIBLE_PET_ACTION_EVENTS.contains(&event.as_str()))
+        .collect()
+}
+
 fn normalize_action_map(
     action_map: Option<HashMap<String, String>>,
 ) -> Result<HashMap<String, String>, String> {
@@ -788,6 +841,16 @@ fn normalize_action_map(
     }
 
     Ok(normalized)
+}
+
+fn normalize_stored_action_map(
+    action_map: Option<HashMap<String, String>>,
+) -> Result<HashMap<String, String>, String> {
+    let normalized = normalize_action_map(action_map)?;
+    Ok(normalized
+        .into_iter()
+        .filter(|(event, _)| VISIBLE_PET_ACTION_EVENTS.contains(&event.as_str()))
+        .collect())
 }
 
 fn runtime_snapshot(state: &AppState) -> Result<RuntimeState, String> {
@@ -1172,6 +1235,20 @@ mod tests {
 
         let invalid_state = HashMap::from([("click".to_string(), "dance".to_string())]);
         assert!(normalize_action_map(Some(invalid_state)).is_err());
+    }
+
+    #[test]
+    fn stores_only_visible_action_map_events() {
+        let map = HashMap::from([
+            ("click".to_string(), "jumping".to_string()),
+            ("success".to_string(), "jumping".to_string()),
+            ("drag-start".to_string(), "waving".to_string()),
+        ]);
+        let normalized = normalize_stored_action_map(Some(map)).unwrap();
+
+        assert_eq!(normalized["click"], "jumping");
+        assert!(!normalized.contains_key("success"));
+        assert!(!normalized.contains_key("drag-start"));
     }
 }
 

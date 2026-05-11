@@ -35,6 +35,20 @@
         "skipTaskbar": true,
         "x": 1200,
         "y": 580
+      },
+      {
+        "label": "focus-panel",
+        "title": "PetPop 专注面板",
+        "width": 390,
+        "height": 318,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "shadow": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "x": 980,
+        "y": 520
       }
     ],
     "security": {

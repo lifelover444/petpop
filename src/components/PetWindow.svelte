@@ -4,6 +4,7 @@
     availableMonitors,
     cursorPosition,
     getCurrentWindow,
+    Window,
     type Monitor,
   } from "@tauri-apps/api/window";
   import SpritePet from "./SpritePet.svelte";
@@ -11,6 +12,7 @@
     resolvePetAction,
     type PetActionEvent,
   } from "../lib/actions";
+  import { repeatedAnimationDurationMs } from "../lib/animations";
   import { actionSceneEvent, runtimeSceneEvents } from "../lib/runtimeScene";
   import {
     initialScene,
@@ -24,6 +26,7 @@
     getRuntimeState,
     getPetSpriteUrl,
     getPetWindowPosition,
+    isLeftMouseButtonPressed,
     isTauri,
     listPets,
     setFocusState,
@@ -68,7 +71,7 @@
   let usingNativeDragFallback = false;
   let clickTimer: number | undefined;
   let dragTracker: number | undefined;
-  let dragEndFallback: number | undefined;
+  let dragButtonPoller: number | undefined;
   let dragStartVersion = 0;
   let dragCursorSampleVersion = 0;
   let lastDragCursorX: number | null = null;
@@ -86,9 +89,10 @@
   const DRAG_DIRECTION_MIN_DELTA_PX = 1;
   const DRAG_POINTER_DIRECTION_GRACE_MS = 120;
   const DOUBLE_CLICK_MS = 260;
-  const DRAG_RELEASE_FALLBACK_MS = 900;
   const PET_WINDOW_WIDTH = 192;
   const PET_WINDOW_HEIGHT = 208;
+  const FOCUS_PANEL_WIDTH = 390;
+  const FOCUS_PANEL_HEIGHT = 318;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -124,6 +128,15 @@
   }
 
   async function visiblePetWindowPosition(x: number, y: number) {
+    return visibleWindowPosition(x, y, PET_WINDOW_WIDTH, PET_WINDOW_HEIGHT);
+  }
+
+  async function visibleWindowPosition(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ) {
     const monitors = await availableMonitors();
     const monitor =
       monitors.find((item) => intersectsMonitor(x, y, item.workArea)) ??
@@ -135,8 +148,8 @@
 
     const minX = monitor.workArea.position.x;
     const minY = monitor.workArea.position.y;
-    const maxX = monitor.workArea.position.x + monitor.workArea.size.width - PET_WINDOW_WIDTH;
-    const maxY = monitor.workArea.position.y + monitor.workArea.size.height - PET_WINDOW_HEIGHT;
+    const maxX = monitor.workArea.position.x + monitor.workArea.size.width - width;
+    const maxY = monitor.workArea.position.y + monitor.workArea.size.height - height;
 
     return {
       x: clamp(Math.round(x), minX, Math.max(minX, maxX)),
@@ -182,7 +195,7 @@
       if (clickTimer !== undefined) {
         window.clearTimeout(clickTimer);
       }
-      clearDragEndFallback();
+      stopDragButtonPoller();
     };
   });
 
@@ -361,7 +374,6 @@
       lastDragCursorX = cursor.x;
       lastDragEvent = null;
       dragCursorSampleVersion += 1;
-      void triggerAction("drag-start", 0);
       void applyDragDirection(initialDeltaX > 0 ? "drag-right" : "drag-left");
       await moveWindowToCursor(cursor.x, cursor.y);
     } catch {
@@ -395,9 +407,7 @@
     lastDragCursorX = cursor.x;
     lastDragEvent = null;
     dragCursorSampleVersion += 1;
-    void triggerAction("drag-start", 0);
     void applyDragDirection(initialDeltaX > 0 ? "drag-right" : "drag-left");
-    scheduleDragEndFallback();
     await petWindow.startDragging();
   }
 
@@ -407,7 +417,7 @@
     }
 
     stopDragTracker();
-    clearDragEndFallback();
+    stopDragButtonPoller();
     dragStartVersion += 1;
     dragCursorSampleVersion += 1;
     dragging = false;
@@ -418,7 +428,9 @@
       const position = await getCurrentWindow().outerPosition();
       await setPetWindowPosition({ x: position.x, y: position.y });
     }
-    await triggerAction("drag-end", 250);
+    lastDragEvent = null;
+    scheduledScene = initialScene(Date.now());
+    await commitScene("idle");
   }
 
   function queueClickAction() {
@@ -444,9 +456,39 @@
     await triggerAction("click");
   }
 
+  async function openFocusPanel(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (clickTimer !== undefined) {
+      window.clearTimeout(clickTimer);
+      clickTimer = undefined;
+    }
+
+    if (!isTauri()) {
+      return;
+    }
+
+    const focusPanel = await Window.getByLabel("focus-panel");
+    if (!focusPanel) {
+      return;
+    }
+
+    const position = await visibleWindowPosition(
+      event.screenX,
+      event.screenY,
+      FOCUS_PANEL_WIDTH,
+      FOCUS_PANEL_HEIGHT,
+    );
+    await focusPanel.setPosition(new PhysicalPosition(position.x, position.y));
+    await focusPanel.show();
+    await focusPanel.setFocus();
+  }
+
   function beginDragTracker() {
     stopDragTracker();
     dragTracker = window.setInterval(trackDragDirection, 80);
+    beginDragButtonPoller();
   }
 
   function stopDragTracker() {
@@ -460,20 +502,27 @@
     lastDragEvent = null;
   }
 
-  function scheduleDragEndFallback() {
-    clearDragEndFallback();
-    dragEndFallback = window.setTimeout(() => {
-      dragEndFallback = undefined;
-      if (dragging) {
-        void endDrag();
-      }
-    }, DRAG_RELEASE_FALLBACK_MS);
+  function beginDragButtonPoller() {
+    stopDragButtonPoller();
+    dragButtonPoller = window.setInterval(() => {
+      void pollDragButton();
+    }, 80);
   }
 
-  function clearDragEndFallback() {
-    if (dragEndFallback !== undefined) {
-      window.clearTimeout(dragEndFallback);
-      dragEndFallback = undefined;
+  function stopDragButtonPoller() {
+    if (dragButtonPoller !== undefined) {
+      window.clearInterval(dragButtonPoller);
+      dragButtonPoller = undefined;
+    }
+  }
+
+  async function pollDragButton() {
+    if (!dragging || !isTauri()) {
+      return;
+    }
+
+    if (!(await isLeftMouseButtonPressed())) {
+      await endDrag();
     }
   }
 
@@ -538,9 +587,6 @@
       return;
     }
 
-    if (usingNativeDragFallback) {
-      scheduleDragEndFallback();
-    }
     await applyDragDirection(deltaX > 0 ? "drag-right" : "drag-left");
   }
 
@@ -568,16 +614,17 @@
 
     if (event !== lastDragEvent) {
       lastDragEvent = event;
+      const resolvedScene = resolvePetAction(activePet?.actionMap, event);
       await applyActionScene(
         event,
         "movement",
-        0,
-        resolvePetAction(activePet?.actionMap, event),
+        repeatedAnimationDurationMs(resolvedScene, 3),
+        resolvedScene,
       );
     }
   }
 
-  async function triggerAction(event: PetActionEvent, minDurationMs = 900) {
+  async function triggerAction(event: PetActionEvent, minDurationMs?: number) {
     await applyActionScene(event, "interaction", minDurationMs);
   }
 
@@ -670,6 +717,7 @@
   onpointermove={movePet}
   onpointerup={releasePet}
   onpointercancel={cancelPet}
+  oncontextmenu={openFocusPanel}
   onkeydown={keyPet}
 >
   {#if activePet && activeSpriteUrl}

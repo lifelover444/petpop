@@ -3,6 +3,10 @@ import {
   type PetActionEvent,
   type PetActionMap,
 } from "./actions";
+import {
+  repeatedAnimationDurationMs,
+  type PetAnimationState,
+} from "./animations";
 import { idleScene, type SceneEvent, type SceneSource } from "./sceneEngine";
 import type { CodexActivityStatus, FocusState, RuntimeState } from "./petpop";
 
@@ -15,12 +19,25 @@ export function actionSceneEvent(
   timestamp: number,
   minDurationMs?: number,
 ): SceneEvent {
+  const state = resolvePetAction(actionMap, event);
+
   return {
     source,
-    state: resolvePetAction(actionMap, event),
+    state,
     timestamp,
-    minDurationMs,
+    minDurationMs: minDurationMs ?? defaultActionDurationMs(source, state),
   };
+}
+
+function defaultActionDurationMs(
+  source: SceneSource,
+  state: PetAnimationState,
+) {
+  if (source === "interaction" || source === "feedback") {
+    return repeatedAnimationDurationMs(state, 3);
+  }
+
+  return undefined;
 }
 
 export function runtimeSceneEvents(

@@ -5,6 +5,8 @@ import {
   ATLAS_WIDTH,
   CELL_HEIGHT,
   CELL_WIDTH,
+  animationCycleDurationMs,
+  repeatedAnimationDurationMs,
   framePosition,
   nextFrameDelay,
 } from "./animations";
@@ -26,5 +28,12 @@ describe("Codex animation table", () => {
 
   it("uses the documented review frame delay", () => {
     expect(nextFrameDelay("review", 5)).toBe(280);
+  });
+
+  it("calculates full-row animation duration for repeated actions", () => {
+    expect(animationCycleDurationMs("running-left")).toBe(1060);
+    expect(repeatedAnimationDurationMs("running-left", 3)).toBe(3180);
+    expect(repeatedAnimationDurationMs("waving", 3)).toBe(2100);
+    expect(repeatedAnimationDurationMs("jumping", 3)).toBe(2520);
   });
 });

@@ -1,6 +1,10 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { DEFAULT_ACTION_MAP, type PetActionMap } from "./actions";
+import {
+  DEFAULT_ACTION_MAP,
+  VISIBLE_ACTION_EVENTS,
+  type PetActionMap,
+} from "./actions";
 import type { PetAnimationState } from "./animations";
 
 export interface PetInfo {
@@ -159,6 +163,8 @@ export async function setPetActionMap(
   petId: string,
   actionMap: PetActionMap,
 ): Promise<PetInfo> {
+  const visibleActionMap = visiblePetActionMap(actionMap);
+
   if (!isTauri()) {
     return {
       id: petId,
@@ -168,11 +174,22 @@ export async function setPetActionMap(
       sourceKind: "browser",
       sourceUrl: null,
       scale: 0.5,
-      actionMap: { ...DEFAULT_ACTION_MAP, ...actionMap },
+      actionMap: visibleActionMap,
     };
   }
 
-  return invoke<PetInfo>("set_pet_action_map", { petId, actionMap });
+  return invoke<PetInfo>("set_pet_action_map", {
+    petId,
+    actionMap: visibleActionMap,
+  });
+}
+
+function visiblePetActionMap(actionMap: PetActionMap): PetActionMap {
+  const visibleEntries = VISIBLE_ACTION_EVENTS.map(({ event }) => [
+    event,
+    actionMap[event] ?? DEFAULT_ACTION_MAP[event],
+  ]);
+  return Object.fromEntries(visibleEntries) as PetActionMap;
 }
 
 export async function chooseImportPath(
@@ -275,6 +292,14 @@ export async function setFocusState(
   }
 
   return invoke<RuntimeState>("set_focus_state", focusState);
+}
+
+export async function isLeftMouseButtonPressed(): Promise<boolean> {
+  if (!isTauri()) {
+    return true;
+  }
+
+  return invoke<boolean>("is_left_mouse_button_pressed");
 }
 
 export async function getPetWindowPosition(): Promise<PetWindowPosition> {

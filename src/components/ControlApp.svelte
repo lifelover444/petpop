@@ -6,7 +6,11 @@
     type PetActionEvent,
     type PetActionMap,
   } from "../lib/actions";
-  import { ANIMATION_ROWS, type PetAnimationState } from "../lib/animations";
+  import {
+    ANIMATION_ROWS,
+    repeatedAnimationDurationMs,
+    type PetAnimationState,
+  } from "../lib/animations";
   import { actionSceneEvent, runtimeSceneEvents } from "../lib/runtimeScene";
   import {
     initialScene,
@@ -118,11 +122,9 @@
     try {
       await action();
       status = "已完成";
-      await triggerAction("success");
       await refresh();
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
-      await triggerAction("error");
       await refresh();
     } finally {
       busy = false;
@@ -180,7 +182,7 @@
 
   async function triggerAction(event: PetActionEvent, actionMap = activePet?.actionMap) {
     lastInteraction = Date.now();
-    await applyActionScene(event, "interaction", 900, actionMap);
+    await applyActionScene(event, "interaction", undefined, actionMap);
   }
 
   async function triggerScene(state: PetAnimationState) {
@@ -188,7 +190,7 @@
     scheduledScene = {
       state,
       source: "interaction",
-      lockedUntil: Date.now() + 900,
+      lockedUntil: Date.now() + repeatedAnimationDurationMs(state, 3),
     };
     runtime = await setScene(state);
   }
@@ -200,7 +202,7 @@
   async function applyActionScene(
     event: PetActionEvent,
     source: SceneSource,
-    minDurationMs: number,
+    minDurationMs?: number,
     actionMap = activePet?.actionMap,
   ) {
     const now = Date.now();
@@ -406,7 +408,6 @@
       status = showBusy ? "动作映射已保存" : "已自动保存动作映射";
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
-      await triggerAction("error");
     } finally {
       if (showBusy) {
         busy = false;

@@ -110,3 +110,17 @@ export function nextFrameDelay(state: PetAnimationState, frame: number) {
   const row = ANIMATION_BY_STATE[state];
   return row.durations[frame % row.durations.length] ?? 140;
 }
+
+export function animationCycleDurationMs(state: PetAnimationState) {
+  return ANIMATION_BY_STATE[state].durations.reduce(
+    (total, duration) => total + duration,
+    0,
+  );
+}
+
+export function repeatedAnimationDurationMs(
+  state: PetAnimationState,
+  repeats = 3,
+) {
+  return animationCycleDurationMs(state) * repeats;
+}
