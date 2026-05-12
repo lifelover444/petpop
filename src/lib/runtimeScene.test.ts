@@ -10,6 +10,13 @@ describe("runtime action scene events", () => {
     expect(event.minDurationMs).toBe(repeatedAnimationDurationMs("waving", 3));
   });
 
+  it("keeps double-click visible for three full animation cycles by default", () => {
+    const event = actionSceneEvent(null, "double-click", "interaction", 1000);
+
+    expect(event.state).toBe("jumping");
+    expect(event.minDurationMs).toBe(repeatedAnimationDurationMs("jumping", 3));
+  });
+
   it("keeps short feedback visible for three full animation cycles by default", () => {
     const event = actionSceneEvent(null, "codex-error", "feedback", 1000);
 

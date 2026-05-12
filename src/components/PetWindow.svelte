@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { PhysicalPosition } from "@tauri-apps/api/dpi";
   import {
     availableMonitors,
@@ -13,6 +14,13 @@
     type PetActionEvent,
   } from "../lib/actions";
   import { repeatedAnimationDurationMs } from "../lib/animations";
+  import {
+    DOUBLE_CLICK_MS,
+    dragEventFromDelta,
+    hasDragMovement,
+    nextClickAction,
+    type DragActionEvent,
+  } from "../lib/petInteraction";
   import { actionSceneEvent, runtimeSceneEvents } from "../lib/runtimeScene";
   import {
     initialScene,
@@ -33,8 +41,6 @@
     setPetWindowPosition,
     setScene,
   } from "../lib/petpop";
-
-  type DragActionEvent = Extract<PetActionEvent, "drag-left" | "drag-right">;
 
   let pets = $state<PetInfo[]>([]);
   let runtime = $state<RuntimeState>({
@@ -60,15 +66,6 @@
   let pressedPointerId: number | null = null;
   let pressStartX = 0;
   let pressStartY = 0;
-  let pressCursorX: number | null = null;
-  let pressCursorY: number | null = null;
-  let pressWindowX: number | null = null;
-  let pressWindowY: number | null = null;
-  let dragCursorStartX = 0;
-  let dragCursorStartY = 0;
-  let dragWindowStartX = 0;
-  let dragWindowStartY = 0;
-  let usingNativeDragFallback = false;
   let clickTimer: number | undefined;
   let dragTracker: number | undefined;
   let dragButtonPoller: number | undefined;
@@ -82,20 +79,24 @@
   let dragging = false;
   let lastInteraction = Date.now();
   let scheduledScene: ScheduledScene = initialScene();
+  let scenePlaybackKey = $state(0);
+  let sceneReconcileTimer: number | undefined;
   let sceneUpdateVersion = 0;
   let pendingSceneUpdates = 0;
   let sceneUpdateQueue = Promise.resolve();
-  const DRAG_THRESHOLD_PX = 5;
-  const DRAG_DIRECTION_MIN_DELTA_PX = 1;
   const DRAG_POINTER_DIRECTION_GRACE_MS = 120;
-  const DOUBLE_CLICK_MS = 260;
   const PET_WINDOW_WIDTH = 192;
   const PET_WINDOW_HEIGHT = 208;
-  const FOCUS_PANEL_WIDTH = 390;
-  const FOCUS_PANEL_HEIGHT = 318;
+  const FOCUS_PANEL_WIDTH = 524;
+  const FOCUS_PANEL_HEIGHT = 148;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
+  );
+  const activePetSignature = $derived(
+    activePet
+      ? `${activePet.id}\n${activePet.spritesheetPath}\n${JSON.stringify(activePet.actionMap ?? {})}`
+      : "",
   );
 
   async function refreshPets() {
@@ -196,15 +197,18 @@
         window.clearTimeout(clickTimer);
       }
       stopDragButtonPoller();
+      clearSceneReconcileTimer();
     };
   });
 
   $effect(() => {
-    const pet = activePet;
+    const petSignature = activePetSignature;
+    const pet = untrack(() => activePet);
     let cancelled = false;
     activeSpriteUrl = "";
-    JSON.stringify(pet?.actionMap ?? {});
+    void petSignature;
     scheduledScene = initialScene();
+    clearSceneReconcileTimer();
 
     if (!pet) {
       return;
@@ -221,7 +225,7 @@
     };
   });
 
-  async function pressPet(event: PointerEvent) {
+  function pressPet(event: PointerEvent) {
     if (event.button !== 0) {
       return;
     }
@@ -232,10 +236,6 @@
     dragCursorSampleVersion += 1;
     pressStartX = event.clientX;
     pressStartY = event.clientY;
-    pressCursorX = null;
-    pressCursorY = null;
-    pressWindowX = null;
-    pressWindowY = null;
     lastPointerScreenX = event.screenX;
     lastPointerDirectionAt = 0;
     dragMoved = false;
@@ -244,25 +244,6 @@
       event.currentTarget.setPointerCapture(event.pointerId);
     }
 
-    if (isTauri()) {
-      try {
-        const [cursor, position] = await Promise.all([
-          cursorPosition(),
-          getCurrentWindow().outerPosition(),
-        ]);
-        if (pressedPointerId === event.pointerId) {
-          pressCursorX = cursor.x;
-          pressCursorY = cursor.y;
-          pressWindowX = position.x;
-          pressWindowY = position.y;
-        }
-      } catch {
-        pressCursorX = null;
-        pressCursorY = null;
-        pressWindowX = null;
-        pressWindowY = null;
-      }
-    }
   }
 
   async function movePet(event: PointerEvent) {
@@ -277,31 +258,31 @@
 
     if (dragging) {
       applyPointerDragDirection(pointerDeltaX);
-      void updateManualDrag();
+      return;
+    }
+
+    if (
+      !hasDragMovement(pressStartX, pressStartY, event.clientX, event.clientY)
+    ) {
       return;
     }
 
     const deltaX = event.clientX - pressStartX;
-    const deltaY = event.clientY - pressStartY;
-
-    if (Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD_PX) {
-      return;
-    }
-
     dragMoved = true;
 
     const directionDeltaX =
-      Math.abs(pointerDeltaX) >= DRAG_DIRECTION_MIN_DELTA_PX
-        ? pointerDeltaX
-        : deltaX;
+      dragEventFromDelta(pointerDeltaX, null) === null ? deltaX : pointerDeltaX;
+    const initialDragEvent = dragEventFromDelta(directionDeltaX, null);
     lastPointerDirectionAt = Date.now();
 
     if (!isTauri()) {
-      await triggerAction(directionDeltaX > 0 ? "drag-right" : "drag-left");
+      if (initialDragEvent) {
+        await triggerAction(initialDragEvent);
+      }
       return;
     }
 
-    await beginManualDrag(directionDeltaX);
+    beginNativeDrag(initialDragEvent);
   }
 
   async function releasePet(event: PointerEvent) {
@@ -341,7 +322,7 @@
     }
   }
 
-  async function beginManualDrag(initialDeltaX: number) {
+  function beginNativeDrag(initialEvent: DragActionEvent | null) {
     if (dragging) {
       return;
     }
@@ -353,46 +334,7 @@
       clickTimer = undefined;
     }
 
-    try {
-      const cursor = await cursorPosition();
-      const position = await getCurrentWindow().outerPosition();
-      if (
-        startVersion !== dragStartVersion ||
-        pressedPointerId === null ||
-        dragging
-      ) {
-        return;
-      }
-      dragCursorStartX = pressCursorX ?? cursor.x;
-      dragCursorStartY = pressCursorY ?? cursor.y;
-      dragWindowStartX = pressWindowX ?? position.x;
-      dragWindowStartY = pressWindowY ?? position.y;
-      dragMoved = true;
-      dragging = true;
-      usingNativeDragFallback = false;
-      beginDragTracker();
-      lastDragCursorX = cursor.x;
-      lastDragEvent = null;
-      dragCursorSampleVersion += 1;
-      void applyDragDirection(initialDeltaX > 0 ? "drag-right" : "drag-left");
-      await moveWindowToCursor(cursor.x, cursor.y);
-    } catch {
-      if (
-        startVersion === dragStartVersion &&
-        pressedPointerId !== null &&
-        !dragging
-      ) {
-        await beginNativeDragFallback(initialDeltaX, startVersion);
-      }
-    }
-  }
-
-  async function beginNativeDragFallback(
-    initialDeltaX: number,
-    startVersion: number,
-  ) {
     const petWindow = getCurrentWindow();
-    const cursor = await cursorPosition();
     if (
       startVersion !== dragStartVersion ||
       pressedPointerId === null ||
@@ -402,13 +344,26 @@
     }
     dragMoved = true;
     dragging = true;
-    usingNativeDragFallback = true;
     beginDragTracker();
-    lastDragCursorX = cursor.x;
+    lastDragCursorX = null;
     lastDragEvent = null;
     dragCursorSampleVersion += 1;
-    void applyDragDirection(initialDeltaX > 0 ? "drag-right" : "drag-left");
-    await petWindow.startDragging();
+    if (initialEvent) {
+      void applyDragDirection(initialEvent);
+    }
+    void seedDragCursor(startVersion);
+    void petWindow.startDragging().catch(() => {
+      if (startVersion === dragStartVersion && dragging) {
+        void endDrag();
+      }
+    });
+  }
+
+  async function seedDragCursor(startVersion: number) {
+    const cursor = await cursorPosition().catch(() => null);
+    if (cursor && startVersion === dragStartVersion && dragging) {
+      lastDragCursorX = cursor.x;
+    }
   }
 
   async function endDrag() {
@@ -421,7 +376,6 @@
     dragStartVersion += 1;
     dragCursorSampleVersion += 1;
     dragging = false;
-    usingNativeDragFallback = false;
     pressedPointerId = null;
     lastPointerScreenX = null;
     if (isTauri()) {
@@ -429,21 +383,21 @@
       await setPetWindowPosition({ x: position.x, y: position.y });
     }
     lastDragEvent = null;
-    scheduledScene = initialScene(Date.now());
-    await commitScene("idle");
   }
 
   function queueClickAction() {
+    const clickAction = nextClickAction(clickTimer !== undefined);
+
     if (clickTimer !== undefined) {
       window.clearTimeout(clickTimer);
       clickTimer = undefined;
-      void triggerAction("double-click");
+      void triggerAction(clickAction);
       return;
     }
 
     clickTimer = window.setTimeout(() => {
       clickTimer = undefined;
-      void triggerAction("click");
+      void triggerAction(clickAction);
     }, DOUBLE_CLICK_MS);
   }
 
@@ -535,22 +489,7 @@
     if (!cursor) {
       return;
     }
-    if (dragging && !usingNativeDragFallback) {
-      await moveWindowToCursor(cursor.x, cursor.y);
-    }
     await trackDragPosition(cursor.x);
-  }
-
-  async function updateManualDrag() {
-    if (!isTauri() || usingNativeDragFallback) {
-      return;
-    }
-
-    const cursor = await latestDragCursor();
-    if (!cursor) {
-      return;
-    }
-    await moveWindowToCursor(cursor.x, cursor.y);
   }
 
   async function latestDragCursor() {
@@ -564,12 +503,6 @@
     return cursor;
   }
 
-  async function moveWindowToCursor(cursorX: number, cursorY: number) {
-    const nextX = Math.round(dragWindowStartX + cursorX - dragCursorStartX);
-    const nextY = Math.round(dragWindowStartY + cursorY - dragCursorStartY);
-    await getCurrentWindow().setPosition(new PhysicalPosition(nextX, nextY));
-  }
-
   async function trackDragPosition(currentCursorX: number) {
     if (!dragging || lastDragCursorX === null) {
       return;
@@ -579,15 +512,14 @@
     lastDragCursorX = currentCursorX;
     const deltaX = currentCursorX - previousCursorX;
 
-    if (Math.abs(deltaX) < 2) {
-      return;
-    }
-
     if (Date.now() - lastPointerDirectionAt < DRAG_POINTER_DIRECTION_GRACE_MS) {
       return;
     }
 
-    await applyDragDirection(deltaX > 0 ? "drag-right" : "drag-left");
+    const nextEvent = dragEventFromDelta(deltaX, lastDragEvent);
+    if (nextEvent) {
+      await applyDragDirection(nextEvent);
+    }
   }
 
   function consumePointerDeltaX(event: PointerEvent) {
@@ -601,12 +533,13 @@
   }
 
   function applyPointerDragDirection(deltaX: number) {
-    if (Math.abs(deltaX) < DRAG_DIRECTION_MIN_DELTA_PX) {
+    const nextEvent = dragEventFromDelta(deltaX, lastDragEvent);
+    if (!nextEvent || nextEvent === lastDragEvent) {
       return;
     }
 
     lastPointerDirectionAt = Date.now();
-    void applyDragDirection(deltaX > 0 ? "drag-right" : "drag-left");
+    void applyDragDirection(nextEvent);
   }
 
   async function applyDragDirection(event: DragActionEvent) {
@@ -624,8 +557,14 @@
     }
   }
 
-  async function triggerAction(event: PetActionEvent, minDurationMs?: number) {
-    await applyActionScene(event, "interaction", minDurationMs);
+  async function triggerAction(event: PetActionEvent) {
+    const resolvedScene = resolvePetAction(activePet?.actionMap, event);
+    await applyActionScene(
+      event,
+      "interaction",
+      repeatedAnimationDurationMs(resolvedScene, 3),
+      resolvedScene,
+    );
   }
 
   async function applyActionScene(
@@ -634,10 +573,17 @@
     minDurationMs?: number,
     resolvedScene = resolvePetAction(activePet?.actionMap, event),
   ) {
-    lastInteraction = Date.now();
     const now = Date.now();
+    lastInteraction = now;
+    const eventTimestamp = Math.max(now, (scheduledScene.timestamp ?? 0) + 1);
     const sceneEvent: SceneEvent = {
-      ...actionSceneEvent(activePet?.actionMap, event, source, now, minDurationMs),
+      ...actionSceneEvent(
+        activePet?.actionMap,
+        event,
+        source,
+        eventTimestamp,
+        minDurationMs,
+      ),
       state: resolvedScene,
     };
     scheduledScene = selectScene(
@@ -645,6 +591,8 @@
       [...ambientSceneEvents(now), sceneEvent],
       now,
     );
+    scenePlaybackKey += 1;
+    scheduleSceneReconcile(now);
     await commitScene(scheduledScene.state);
   }
 
@@ -675,8 +623,29 @@
       });
     }
     scheduledScene = selectScene(scheduledScene, ambientSceneEvents(now), now);
+    scheduleSceneReconcile(now);
     if (scheduledScene.state !== runtime.scene) {
       await commitScene(scheduledScene.state);
+    }
+  }
+
+  function scheduleSceneReconcile(now: number) {
+    clearSceneReconcileTimer();
+
+    if (scheduledScene.lockedUntil <= now) {
+      return;
+    }
+
+    sceneReconcileTimer = window.setTimeout(() => {
+      sceneReconcileTimer = undefined;
+      void reconcileScene();
+    }, scheduledScene.lockedUntil - now + 10);
+  }
+
+  function clearSceneReconcileTimer() {
+    if (sceneReconcileTimer !== undefined) {
+      window.clearTimeout(sceneReconcileTimer);
+      sceneReconcileTimer = undefined;
     }
   }
 
@@ -725,6 +694,7 @@
       imageUrl={activeSpriteUrl}
       state={runtime.scene}
       scale={runtime.scale}
+      playbackKey={scenePlaybackKey}
     />
   {/if}
 </button>

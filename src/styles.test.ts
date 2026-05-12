@@ -14,3 +14,17 @@ describe("main window scrolling", () => {
     expect(shellRule).not.toMatch(/(?:^|[;\s])overflow-y\s*:\s*auto/);
   });
 });
+
+describe("focus panel layout", () => {
+  it("keeps focus settings visually subordinate to the timer status", () => {
+    const focusRule = styles.match(/\.focus-panel\s*\{(?<body>[^}]*)\}/)
+      ?.groups?.body;
+    const summaryRule = styles.match(/\.focus-summary\s*\{(?<body>[^}]*)\}/)
+      ?.groups?.body;
+
+    expect(focusRule).toBeDefined();
+    expect(focusRule).toContain("grid-template-columns");
+    expect(summaryRule).toBeDefined();
+    expect(summaryRule).toContain("grid-template-columns");
+  });
+});

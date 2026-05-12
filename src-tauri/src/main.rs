@@ -302,6 +302,7 @@ fn main() {
             import_pet_from_path,
             import_petdex,
             scan_codex_pets,
+            remove_pet,
             get_pet_sprite_data_url,
             get_pet_window_position,
             set_pet_window_position,
@@ -326,8 +327,12 @@ fn list_pets() -> Result<Vec<PetInfo>, String> {
         fs::create_dir_all(&pets_dir).map_err(to_string)?;
     }
 
+    list_pets_in_dir(&pets_dir)
+}
+
+fn list_pets_in_dir(pets_dir: &Path) -> Result<Vec<PetInfo>, String> {
     let mut pets = Vec::new();
-    for entry in fs::read_dir(&pets_dir).map_err(to_string)? {
+    for entry in fs::read_dir(pets_dir).map_err(to_string)? {
         let path = entry.map_err(to_string)?.path();
         if path.is_dir() {
             if let Ok(pet) = read_pet_dir_info(&path) {
@@ -453,6 +458,20 @@ fn scan_codex_pets() -> Result<Vec<PetInfo>, String> {
     }
 
     Ok(imported)
+}
+
+#[tauri::command]
+fn remove_pet(pet_id: String, state: State<AppState>) -> Result<RuntimeState, String> {
+    let pets_dir = pets_dir()?;
+    remove_pet_from_dir(&pets_dir, &pet_id)?;
+    let remaining = list_pets_in_dir(&pets_dir)?;
+
+    {
+        let mut runtime = state.runtime.lock().map_err(to_string)?;
+        sync_runtime_after_pet_removed(&mut runtime, &pet_id, &remaining);
+    }
+
+    runtime_snapshot(state.inner())
 }
 
 #[tauri::command]
@@ -853,6 +872,37 @@ fn normalize_stored_action_map(
         .collect())
 }
 
+fn remove_pet_from_dir(pets_dir: &Path, pet_id: &str) -> Result<(), String> {
+    let sanitized = sanitize_id(pet_id);
+    if sanitized.is_empty() {
+        return Err("宠物 ID 不能为空。".to_string());
+    }
+
+    let target = pets_dir.join(sanitized);
+    if !target.exists() {
+        return Err("该宠物尚未导入。".to_string());
+    }
+    if !target.is_dir() {
+        return Err("宠物副本不是目录，无法移除。".to_string());
+    }
+
+    read_pet_json(&target)?;
+    fs::remove_dir_all(&target).map_err(to_string)
+}
+
+fn sync_runtime_after_pet_removed(
+    runtime: &mut RuntimeState,
+    removed_pet_id: &str,
+    remaining_pets: &[PetInfo],
+) {
+    if runtime.active_pet_id.as_deref() != Some(removed_pet_id) {
+        return;
+    }
+
+    runtime.active_pet_id = remaining_pets.first().map(|pet| pet.id.clone());
+    runtime.scene = "idle".to_string();
+}
+
 fn runtime_snapshot(state: &AppState) -> Result<RuntimeState, String> {
     let (codex_activity, codex_activity_error) = refresh_codex_activity(state)?;
     let mut runtime = state.runtime.lock().map_err(to_string)?.clone();
@@ -1249,6 +1299,81 @@ mod tests {
         assert_eq!(normalized["click"], "jumping");
         assert!(!normalized.contains_key("success"));
         assert!(!normalized.contains_key("drag-start"));
+    }
+
+    #[test]
+    fn remove_pet_from_dir_deletes_only_the_imported_pet_copy() {
+        let root = std::env::temp_dir().join(format!("petpop-remove-test-{}", timestamp()));
+        let pets = root.join("pets");
+        let imported_pet = pets.join("alpha");
+        let codex_source = root.join("codex-source").join("alpha");
+        write_minimal_pet_dir(&imported_pet, "alpha", "Alpha");
+        write_minimal_pet_dir(&codex_source, "alpha", "Alpha");
+
+        remove_pet_from_dir(&pets, "alpha").unwrap();
+
+        assert!(!imported_pet.exists());
+        assert!(codex_source.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn removing_active_pet_selects_the_next_available_pet() {
+        let mut runtime = RuntimeState {
+            active_pet_id: Some("alpha".to_string()),
+            scene: "running".to_string(),
+            ..RuntimeState::default()
+        };
+        let remaining = vec![test_pet_info("beta", "Beta")];
+
+        sync_runtime_after_pet_removed(&mut runtime, "alpha", &remaining);
+
+        assert_eq!(runtime.active_pet_id.as_deref(), Some("beta"));
+        assert_eq!(runtime.scene, "idle");
+    }
+
+    #[test]
+    fn removing_last_active_pet_clears_runtime_selection() {
+        let mut runtime = RuntimeState {
+            active_pet_id: Some("alpha".to_string()),
+            scene: "running".to_string(),
+            ..RuntimeState::default()
+        };
+
+        sync_runtime_after_pet_removed(&mut runtime, "alpha", &[]);
+
+        assert_eq!(runtime.active_pet_id, None);
+        assert_eq!(runtime.scene, "idle");
+    }
+
+    fn write_minimal_pet_dir(path: &Path, id: &str, display_name: &str) {
+        fs::create_dir_all(path).unwrap();
+        fs::write(
+            path.join("pet.json"),
+            format!(
+                r#"{{
+  "id": "{id}",
+  "displayName": "{display_name}",
+  "description": "Test pet",
+  "spritesheetPath": "spritesheet.webp"
+}}"#
+            ),
+        )
+        .unwrap();
+        fs::write(path.join("spritesheet.webp"), b"sprite").unwrap();
+    }
+
+    fn test_pet_info(id: &str, display_name: &str) -> PetInfo {
+        PetInfo {
+            id: id.to_string(),
+            display_name: display_name.to_string(),
+            description: String::new(),
+            spritesheet_path: "spritesheet.webp".to_string(),
+            source_kind: "local".to_string(),
+            source_url: None,
+            scale: 0.5,
+            action_map: default_visible_action_map(),
+        }
     }
 }
 

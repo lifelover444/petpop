@@ -159,6 +159,19 @@ export async function scanCodexPets(): Promise<PetInfo[]> {
   return pets;
 }
 
+export async function removePet(petId: string): Promise<RuntimeState> {
+  spriteDataUrlCache.delete(petId);
+
+  if (!isTauri()) {
+    if (browserRuntime.activePetId === petId) {
+      browserRuntime = { ...browserRuntime, activePetId: null, scene: "idle" };
+    }
+    return browserRuntime;
+  }
+
+  return invoke<RuntimeState>("remove_pet", { petId });
+}
+
 export async function setPetActionMap(
   petId: string,
   actionMap: PetActionMap,

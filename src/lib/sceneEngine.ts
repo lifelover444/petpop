@@ -20,6 +20,7 @@ export interface ScheduledScene {
   state: PetAnimationState;
   lockedUntil: number;
   source: SceneSource;
+  timestamp?: number;
 }
 
 const PRIORITY: Record<SceneSource, number> = {
@@ -52,7 +53,8 @@ export function selectScene(
       .filter(
         (event) =>
           PRIORITY[event.source] > PRIORITY[current.source] ||
-          (current.source === "movement" && event.source === "movement"),
+          (event.source === current.source &&
+            event.timestamp > (current.timestamp ?? -Infinity)),
       )
       .sort(compareSceneEvents)[0];
 
@@ -80,6 +82,7 @@ export function initialScene(now = Date.now()): ScheduledScene {
     state: "idle",
     source: "idle",
     lockedUntil: now,
+    timestamp: now,
   };
 }
 
@@ -96,6 +99,7 @@ function lockScene(event: SceneEvent, now: number): ScheduledScene {
   return {
     state: event.state,
     source: event.source,
+    timestamp: event.timestamp,
     lockedUntil:
       now + (event.minDurationMs ?? DEFAULT_LOCK_MS[event.source] ?? 0),
   };

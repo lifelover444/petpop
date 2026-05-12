@@ -3,22 +3,14 @@
   import {
     ACTION_EVENTS,
     normalizeActionMap,
+    resolvePetAction,
     type PetActionEvent,
     type PetActionMap,
   } from "../lib/actions";
   import {
     ANIMATION_ROWS,
-    repeatedAnimationDurationMs,
     type PetAnimationState,
   } from "../lib/animations";
-  import { actionSceneEvent, runtimeSceneEvents } from "../lib/runtimeScene";
-  import {
-    initialScene,
-    selectScene,
-    type ScheduledScene,
-    type SceneEvent,
-    type SceneSource,
-  } from "../lib/sceneEngine";
   import {
     chooseImportPath,
     getAppSettings,
@@ -27,6 +19,7 @@
     importPetFromPath,
     importPetdex,
     listPets,
+    removePet,
     scanCodexPets,
     setActivePet,
     setAppSettings,
@@ -73,7 +66,7 @@
     focusMinutes: 25,
     breakMinutes: 5,
   });
-  let scheduledScene: ScheduledScene = initialScene();
+  let scenePlaybackKey = $state(0);
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -95,6 +88,10 @@
   ]);
   const focusRemainingMs = $derived(currentFocusRemainingMs(clockNow));
   const focusLabel = $derived(formatDuration(focusRemainingMs));
+  const focusStatusText = $derived(focusStatusLabel());
+  const focusModeText = $derived(
+    runtime.focusState.mode === "break" ? "休息" : "专注",
+  );
   const codexStatusLabel = $derived(codexLabel(runtime.codexActivity.status));
 
   async function refresh() {
@@ -108,7 +105,6 @@
     if (!nextRuntime.activePetId && nextPets[0]) {
       runtime = await setActivePet(nextPets[0].id);
     }
-    await reconcileScene();
   }
 
   async function loadSettings() {
@@ -180,66 +176,39 @@
     });
   }
 
+  async function removeActivePet() {
+    if (!activePet) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `移除“${activePet.displayName}”？这只会删除 PetPop 的导入副本，不会修改原始宠物文件。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    await runAction("正在移除宠物", async () => {
+      runtime = await removePet(activePet.id);
+      activeSpriteUrl = "";
+    });
+  }
+
   async function triggerAction(event: PetActionEvent, actionMap = activePet?.actionMap) {
     lastInteraction = Date.now();
-    await applyActionScene(event, "interaction", undefined, actionMap);
+    scenePlaybackKey += 1;
+    runtime = await setScene(resolvePetAction(actionMap, event));
   }
 
   async function triggerScene(state: PetAnimationState) {
-    lastInteraction = Date.now();
-    scheduledScene = {
-      state,
-      source: "interaction",
-      lockedUntil: Date.now() + repeatedAnimationDurationMs(state, 3),
-    };
+    const now = Date.now();
+    lastInteraction = now;
+    scenePlaybackKey += 1;
     runtime = await setScene(state);
   }
 
   async function updateScale(value: number) {
     runtime = await setScale(value);
-  }
-
-  async function applyActionScene(
-    event: PetActionEvent,
-    source: SceneSource,
-    minDurationMs?: number,
-    actionMap = activePet?.actionMap,
-  ) {
-    const now = Date.now();
-    const sceneEvent: SceneEvent = actionSceneEvent(
-      actionMap,
-      event,
-      source,
-      now,
-      minDurationMs,
-    );
-    scheduledScene = selectScene(
-      scheduledScene,
-      [...ambientSceneEvents(now), sceneEvent],
-      now,
-    );
-    runtime = await setScene(scheduledScene.state);
-  }
-
-  async function reconcileScene() {
-    if (!activePet) {
-      return;
-    }
-
-    const now = Date.now();
-    scheduledScene = selectScene(scheduledScene, ambientSceneEvents(now), now);
-    if (scheduledScene.state !== runtime.scene) {
-      runtime = await setScene(scheduledScene.state);
-    }
-  }
-
-  function ambientSceneEvents(now: number) {
-    return runtimeSceneEvents(
-      runtime,
-      activePet?.actionMap,
-      now,
-      now - lastInteraction,
-    );
   }
 
   async function saveFocusSettings() {
@@ -286,7 +255,6 @@
       remainingMs: durationMs,
       endsAt: Date.now() + durationMs,
     });
-    await reconcileScene();
   }
 
   async function pauseFocus() {
@@ -298,7 +266,6 @@
       endsAt: null,
     });
     status = runtime.focusState.mode === "break" ? "休息已暂停" : "专注已暂停";
-    await reconcileScene();
   }
 
   async function resumeFocus() {
@@ -313,7 +280,6 @@
       endsAt: Date.now() + remainingMs,
     });
     status = runtime.focusState.mode === "break" ? "休息中" : "专注中";
-    await reconcileScene();
   }
 
   async function completeFocus() {
@@ -326,7 +292,6 @@
       endsAt: null,
     });
     status = isBreak ? "休息完成" : "专注完成";
-    await reconcileScene();
   }
 
   async function cancelFocus() {
@@ -338,7 +303,6 @@
       endsAt: null,
     });
     status = "专注已结束";
-    await reconcileScene();
   }
 
   function currentFocusRemainingMs(now: number) {
@@ -389,6 +353,25 @@
 
   async function saveActionMap() {
     await persistActionMap(actionMapDraft, true);
+  }
+
+  function focusStatusLabel() {
+    switch (runtime.focusState.status) {
+      case "running":
+        return "进行中";
+      case "paused":
+        return "已暂停";
+      case "complete":
+        return "已完成";
+      default:
+        return "未开始";
+    }
+  }
+
+  async function resetActionMap() {
+    const nextMap = normalizeActionMap();
+    actionMapDraft = nextMap;
+    await persistActionMap(nextMap, true);
   }
 
   async function persistActionMap(actionMap: PetActionMap, showBusy: boolean) {
@@ -506,7 +489,16 @@
         <h2>{activePet?.displayName ?? "未选择宠物"}</h2>
         <p>{activePet?.description ?? "请在桌面应用中导入 Codex 兼容宠物包。"}</p>
       </div>
-      <div class="status" class:busy>{status}</div>
+      <div class="topbar-actions">
+        <button
+          class="danger-button"
+          disabled={busy || !activePet}
+          onclick={removeActivePet}
+        >
+          移除宠物
+        </button>
+        <div class="status" class:busy>{status}</div>
+      </div>
     </header>
 
     <div class="stage">
@@ -515,6 +507,7 @@
           imageUrl={activeSpriteUrl}
           state={runtime.scene}
           scale={runtime.scale}
+          playbackKey={scenePlaybackKey}
         />
       {:else if activePet}
         <div class="stage-message">正在加载精灵图</div>
@@ -561,43 +554,41 @@
     </div>
 
     <div class="focus-panel">
-      <div class="focus-meter">
-        <span>{runtime.focusState.mode === "break" ? "休息" : "专注"}</span>
+      <div class="focus-summary">
+        <div>
+          <span>专注模式</span>
+          <small>{focusModeText} · {focusStatusText}</small>
+        </div>
         <strong>{focusLabel}</strong>
-        <small>
-          {runtime.focusState.status === "running"
-            ? "进行中"
-            : runtime.focusState.status === "paused"
-              ? "已暂停"
-              : runtime.focusState.status === "complete"
-                ? "已完成"
-                : "未开始"}
-        </small>
       </div>
 
-      <label>
-        <span>专注分钟</span>
-        <input
-          type="number"
-          min="1"
-          max="180"
-          value={appSettings.focusMinutes}
-          onchange={(event) =>
-            updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
-        />
-      </label>
+      <div class="focus-settings" aria-label="专注时长设置">
+        <label class="duration-field">
+          <span>专注</span>
+          <input
+            type="number"
+            min="1"
+            max="180"
+            value={appSettings.focusMinutes}
+            onchange={(event) =>
+              updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
+          />
+          <small>分钟</small>
+        </label>
 
-      <label>
-        <span>休息分钟</span>
-        <input
-          type="number"
-          min="1"
-          max="60"
-          value={appSettings.breakMinutes}
-          onchange={(event) =>
-            updateBreakMinutes(Number((event.target as HTMLInputElement).value))}
-        />
-      </label>
+        <label class="duration-field">
+          <span>休息</span>
+          <input
+            type="number"
+            min="1"
+            max="60"
+            value={appSettings.breakMinutes}
+            onchange={(event) =>
+              updateBreakMinutes(Number((event.target as HTMLInputElement).value))}
+          />
+          <small>分钟</small>
+        </label>
+      </div>
 
       <div class="focus-actions">
         {#if runtime.focusState.status === "running"}
@@ -618,7 +609,12 @@
     <div class="action-map">
       <div class="action-map-header">
         <h2>动作映射</h2>
-        <button disabled={busy || !activePet} onclick={saveActionMap}>保存</button>
+        <div class="action-map-buttons">
+          <button disabled={busy || !activePet} onclick={resetActionMap}>
+            恢复 Codex 默认
+          </button>
+          <button disabled={busy || !activePet} onclick={saveActionMap}>保存</button>
+        </div>
       </div>
       <div class="action-map-sections">
         {#each actionEventGroups as group}

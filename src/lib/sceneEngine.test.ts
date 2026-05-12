@@ -25,6 +25,68 @@ describe("scene scheduler", () => {
     expect(scene.state).toBe("jumping");
   });
 
+  it("lets a new interaction restart an active interaction lock", () => {
+    const current = {
+      state: "waving" as const,
+      source: "interaction" as const,
+      lockedUntil: 3000,
+    };
+    const scene = selectScene(current, [
+      {
+        source: "interaction",
+        state: "jumping",
+        timestamp: 1200,
+        minDurationMs: 2520,
+      },
+    ], 1200);
+
+    expect(scene.state).toBe("jumping");
+    expect(scene.lockedUntil).toBe(3720);
+  });
+
+  it("keeps click interaction locked until three cycles complete, then returns idle", () => {
+    const current = selectScene(initialScene(1000), [
+      idleScene(1000, 0),
+      {
+        source: "interaction",
+        state: "waving",
+        timestamp: 1000,
+        minDurationMs: 2100,
+      },
+    ], 1000);
+
+    expect(current.state).toBe("waving");
+    expect(current.lockedUntil).toBe(3100);
+
+    const stillLocked = selectScene(current, [idleScene(2500, 0)], 2500);
+    expect(stillLocked.state).toBe("waving");
+
+    const restored = selectScene(current, [idleScene(3110, 0)], 3110);
+    expect(restored.state).toBe("idle");
+  });
+
+  it("does not extend a lock for the same already-scheduled event", () => {
+    const current = selectScene(initialScene(1000), [
+      {
+        source: "feedback",
+        state: "jumping",
+        timestamp: 1000,
+        minDurationMs: 2520,
+      },
+    ], 1000);
+
+    const scene = selectScene(current, [
+      {
+        source: "feedback",
+        state: "jumping",
+        timestamp: 1000,
+        minDurationMs: 2520,
+      },
+    ], 1200);
+
+    expect(scene.lockedUntil).toBe(3520);
+  });
+
   it("prioritizes Codex over focus and focus over idle", () => {
     const now = 1000;
     const scene = selectScene(initialScene(now), [

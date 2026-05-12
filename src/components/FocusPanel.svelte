@@ -36,9 +36,10 @@
 
   const remainingMs = $derived(currentFocusRemainingMs(clockNow));
   const panelTitle = $derived(
-    runtime.focusState.mode === "break" ? "休息时段" : "专注时段",
+    runtime.focusState.mode === "break" ? "休息" : "专注",
   );
   const panelTime = $derived(formatPanelTime(remainingMs));
+  const progressPercent = $derived(`${Math.round(focusProgress() * 100)}%`);
   const panelStatus = $derived(focusStatusLabel());
   const primaryActionLabel = $derived(
     runtime.focusState.status === "running"
@@ -181,16 +182,28 @@
   }
 
   function formatPanelTime(value: number) {
-    if (runtime.focusState.mode === "idle") {
-      return `${appSettings.focusMinutes}分钟`;
-    }
-
     const totalSeconds = Math.ceil(value / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds
       .toString()
       .padStart(2, "0")}`;
+  }
+
+  function focusProgress() {
+    if (runtime.focusState.mode === "idle") {
+      return 0;
+    }
+
+    const totalMs =
+      runtime.focusState.mode === "break"
+        ? appSettings.breakMinutes * 60_000
+        : appSettings.focusMinutes * 60_000;
+    if (totalMs <= 0) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(1, 1 - remainingMs / totalMs));
   }
 
   function focusStatusLabel() {
@@ -207,20 +220,21 @@
   }
 </script>
 
-<section class="focus-popover" aria-label="专注模式">
-  <header>
-    <button class="icon-button outline-icon" aria-label="打开主面板" onclick={openMainPanel}></button>
-    <h1>{panelTitle}</h1>
-    <button class="icon-button close-icon" aria-label="关闭" onclick={closePanel}></button>
-  </header>
-
-  <div class="timer-ring">
-    <span>{panelTime}</span>
+<section
+  class="focus-capsule"
+  data-mode={runtime.focusState.mode}
+  data-status={runtime.focusState.status}
+  aria-label="专注模式"
+>
+  <div class="capsule-meta">
+    <span>{panelTitle}</span>
+    <strong>{panelTime}</strong>
+    <small>{panelStatus}</small>
   </div>
 
-  <div class="quick-actions">
+  <div class="capsule-actions">
     <button
-      class="primary-button"
+      class="capsule-primary"
       aria-label={primaryActionLabel}
       title={primaryActionLabel}
       onclick={primaryAction}
@@ -230,12 +244,19 @@
       {:else}
         <span class="play-icon"></span>
       {/if}
+      <span>{primaryActionLabel}</span>
     </button>
-    <button class="icon-button reset-icon" aria-label="重置" title="重置" onclick={resetFocus}></button>
-    <button class="icon-button more-icon" aria-label="更多" title="更多" onclick={openMainPanel}></button>
+
+    <button class="reset-button" aria-label="重置计时" title="重置计时" onclick={resetFocus}>重置</button>
+    <button
+      class="icon-button more-icon"
+      aria-label="更多"
+      title="更多"
+      onclick={openMainPanel}
+    ></button>
   </div>
 
-  <p>{panelStatus}</p>
+  <div class="capsule-progress" style={`--progress: ${progressPercent}`}></div>
 </section>
 
 <style>
@@ -249,171 +270,147 @@
     background: transparent;
   }
 
-  .focus-popover {
-    width: 390px;
-    height: 318px;
+  .focus-capsule {
+    position: relative;
+    width: 396px;
+    height: 116px;
     display: grid;
-    grid-template-rows: auto 1fr auto auto;
-    justify-items: center;
-    gap: 16px;
-    border: 1px solid #b9bec7;
-    border-radius: 14px;
-    padding: 20px 24px 22px;
-    color: #1b1f24;
-    background: #f2f5fb;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
-  }
-
-  header {
-    width: 100%;
-    display: grid;
-    grid-template-columns: 44px 1fr 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    gap: 18px;
+    padding: 18px 18px 20px 22px;
+    overflow: hidden;
+    color: #1b1f1d;
+    background: rgba(255, 253, 248, 0.96);
+    border: 1px solid rgba(49, 54, 51, 0.1);
+    border-radius: 24px;
+    box-shadow:
+      0 14px 32px rgba(32, 37, 35, 0.15),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.75);
+    user-select: none;
   }
 
-  h1 {
-    margin: 0;
-    text-align: center;
-    font-size: 24px;
-    font-weight: 500;
-    letter-spacing: 0;
-  }
-
-  .timer-ring {
-    width: 124px;
-    height: 124px;
+  .capsule-meta {
     display: grid;
-    place-items: center;
-    align-self: center;
-    border: 1px solid #e0e4ea;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle, #ffffff 0 62%, transparent 63%),
-      repeating-conic-gradient(#e8ecf2 0deg 3deg, transparent 3deg 15deg);
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 3px 10px;
+    align-items: baseline;
+    min-width: 0;
   }
 
-  .timer-ring span {
-    min-width: 82px;
-    text-align: center;
-    font-size: 24px;
+  .capsule-meta span,
+  .capsule-meta small {
+    color: #676b64;
     letter-spacing: 0;
   }
 
-  .quick-actions {
+  .capsule-meta span {
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  .capsule-meta small {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .capsule-meta strong {
+    grid-column: 1 / -1;
+    display: block;
+    overflow: hidden;
+    color: #202523;
+    font-size: 42px;
+    font-weight: 700;
+    line-height: 0.96;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .capsule-actions {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 8px;
   }
 
-  .icon-button,
-  .primary-button {
-    width: 42px;
-    height: 42px;
-    min-height: 42px;
+  .capsule-primary {
+    min-width: 76px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 0;
+    border-radius: 999px;
+    padding: 0 14px;
+    color: #ffffff;
+    background: #202523;
+    box-shadow: 0 8px 18px rgba(32, 37, 35, 0.16);
+  }
+
+  .capsule-primary:hover {
+    border-color: transparent;
+    background: #111513;
+    transform: none;
+  }
+
+  .icon-button {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
     display: grid;
     place-items: center;
     border: 1px solid #d4d8df;
     border-radius: 50%;
     padding: 0;
     background: #ffffff;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
   }
 
-  .primary-button {
-    border-color: #0578d4;
-    background: #0578d4;
-    box-shadow: none;
-  }
-
-  .icon-button:hover,
-  .primary-button:hover {
+  .icon-button:hover {
     transform: none;
-    border-color: #0578d4;
+    border-color: #9da3aa;
   }
 
-  .outline-icon,
-  .close-icon,
-  .reset-icon,
   .more-icon {
     position: relative;
   }
 
-  .outline-icon::before,
-  .outline-icon::after {
-    content: "";
-    position: absolute;
-    width: 16px;
-    height: 16px;
-    border: 2px solid #1b1f24;
-  }
-
-  .outline-icon::before {
-    top: 7px;
-    left: 7px;
-    border-right: 0;
-    border-bottom: 0;
-  }
-
-  .outline-icon::after {
-    right: 7px;
-    bottom: 7px;
-    border-left: 0;
-    border-top: 0;
-  }
-
-  .close-icon::before,
-  .close-icon::after {
-    content: "";
-    position: absolute;
-    width: 25px;
-    height: 2px;
+  .reset-button {
+    min-width: 48px;
+    min-height: 32px;
+    border: 1px solid #d4d8df;
     border-radius: 999px;
-    background: #111827;
+    padding: 0 12px;
+    color: #4d554f;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   }
 
-  .close-icon::before {
-    transform: rotate(45deg);
-  }
-
-  .close-icon::after {
-    transform: rotate(-45deg);
+  .reset-button:hover {
+    border-color: #9da3aa;
+    color: #202523;
+    background: #f8faf8;
+    transform: none;
   }
 
   .play-icon {
     width: 0;
     height: 0;
-    margin-left: 3px;
-    border-top: 10px solid transparent;
-    border-bottom: 10px solid transparent;
-    border-left: 15px solid #ffffff;
+    margin-left: 2px;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 9px solid #ffffff;
   }
 
   .pause-icon {
-    width: 16px;
-    height: 18px;
-    border-right: 5px solid #ffffff;
-    border-left: 5px solid #ffffff;
-  }
-
-  .reset-icon::before {
-    content: "";
-    width: 21px;
-    height: 21px;
-    border: 2px solid #111827;
-    border-right-color: transparent;
-    border-radius: 50%;
-  }
-
-  .reset-icon::after {
-    content: "";
-    position: absolute;
-    top: 9px;
-    left: 10px;
-    width: 8px;
-    height: 8px;
-    border-top: 2px solid #111827;
-    border-left: 2px solid #111827;
-    transform: rotate(-32deg);
+    width: 12px;
+    height: 14px;
+    border-right: 4px solid #ffffff;
+    border-left: 4px solid #ffffff;
   }
 
   .more-icon::before {
@@ -427,10 +424,25 @@
       8px 0 0 #111827;
   }
 
-  p {
-    margin: -6px 0 0;
-    color: #5c626b;
-    font-size: 24px;
-    letter-spacing: 0;
+  .capsule-progress {
+    position: absolute;
+    right: 18px;
+    bottom: 12px;
+    left: 22px;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(32, 37, 35, 0.1);
   }
+
+  .capsule-progress::before {
+    content: "";
+    display: block;
+    width: var(--progress);
+    height: 100%;
+    border-radius: inherit;
+    background: #2f7d4f;
+    transition: width 240ms ease;
+  }
+
 </style>

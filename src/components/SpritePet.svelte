@@ -12,11 +12,13 @@
     state: animationState = "idle",
     scale = 0.5,
     paused = false,
+    playbackKey = 0,
   }: {
     imageUrl: string;
     state?: PetAnimationState;
     scale?: number;
     paused?: boolean;
+    playbackKey?: number;
   } = $props();
 
   let frame = $state(0);
@@ -24,6 +26,7 @@
 
   $effect(() => {
     void animationState;
+    void playbackKey;
     frame = 0;
   });
 
