@@ -16,7 +16,7 @@
         "title": "PetPop 桌宠",
         "width": 1040,
         "height": 700,
-        "minWidth": 860,
+        "minWidth": 900,
         "minHeight": 560,
         "resizable": true,
         "decorations": true
@@ -39,8 +39,8 @@
       {
         "label": "focus-panel",
         "title": "PetPop 专注面板",
-        "width": 396,
-        "height": 116,
+        "width": 476,
+        "height": 132,
         "resizable": false,
         "decorations": false,
         "transparent": true,

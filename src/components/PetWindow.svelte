@@ -1,6 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { PhysicalPosition } from "@tauri-apps/api/dpi";
+  import {
+    LogicalPosition,
+    LogicalSize,
+    PhysicalPosition,
+  } from "@tauri-apps/api/dpi";
   import {
     availableMonitors,
     cursorPosition,
@@ -87,8 +91,10 @@
   const DRAG_POINTER_DIRECTION_GRACE_MS = 120;
   const PET_WINDOW_WIDTH = 192;
   const PET_WINDOW_HEIGHT = 208;
-  const FOCUS_PANEL_WIDTH = 524;
-  const FOCUS_PANEL_HEIGHT = 148;
+  const FOCUS_LAUNCHER_WIDTH = 132;
+  const FOCUS_LAUNCHER_HEIGHT = 46;
+  const FOCUS_PANEL_WIDTH = 520;
+  const FOCUS_PANEL_HEIGHT = 132;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
@@ -428,15 +434,54 @@
       return;
     }
 
-    const position = await visibleWindowPosition(
+    const position = visibleLogicalWindowPosition(
       event.screenX,
       event.screenY,
       FOCUS_PANEL_WIDTH,
       FOCUS_PANEL_HEIGHT,
     );
-    await focusPanel.setPosition(new PhysicalPosition(position.x, position.y));
+    await showFocusPanelLauncher(focusPanel, position);
+  }
+
+  async function showFocusPanelLauncher(
+    focusPanel: Window,
+    position: { x: number; y: number },
+  ) {
+    await focusPanel.hide();
+    await focusPanel.setSize(
+      new LogicalSize(FOCUS_LAUNCHER_WIDTH, FOCUS_LAUNCHER_HEIGHT),
+    );
+    await focusPanel.setPosition(new LogicalPosition(position.x, position.y));
     await focusPanel.show();
     await focusPanel.setFocus();
+    await focusPanel.emitTo("focus-panel", "focus-panel:launcher");
+    window.setTimeout(() => {
+      void focusPanel.setSize(
+        new LogicalSize(FOCUS_LAUNCHER_WIDTH, FOCUS_LAUNCHER_HEIGHT),
+      );
+      void focusPanel.emitTo("focus-panel", "focus-panel:launcher");
+    }, 80);
+  }
+
+  function visibleLogicalWindowPosition(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ) {
+    const screen = window.screen as Screen & {
+      availLeft?: number;
+      availTop?: number;
+    };
+    const minX = screen.availLeft ?? 0;
+    const minY = screen.availTop ?? 0;
+    const maxX = minX + screen.availWidth - width;
+    const maxY = minY + screen.availHeight - height;
+
+    return {
+      x: clamp(Math.round(x), minX, Math.max(minX, maxX)),
+      y: clamp(Math.round(y), minY, Math.max(minY, maxY)),
+    };
   }
 
   function beginDragTracker() {
@@ -701,9 +746,11 @@
 
 <style>
   .pet-window {
-    width: fit-content;
-    height: fit-content;
-    min-height: 0;
+    width: 192px;
+    height: 208px;
+    min-height: 208px;
+    display: grid;
+    place-items: start;
     border: 0;
     padding: 0;
     background: transparent;

@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { LogicalSize, PhysicalSize } from "@tauri-apps/api/dpi";
   import { Window } from "@tauri-apps/api/window";
   import {
     getAppSettings,
     getRuntimeState,
     isTauri,
+    setAppSettings,
     setFocusState,
+    showMainWindow,
     type AppSettings,
     type RuntimeState,
   } from "../lib/petpop";
@@ -33,6 +36,11 @@
     breakMinutes: 5,
   });
   let clockNow = $state(Date.now());
+  let capsuleOpen = $state(false);
+  const FOCUS_LAUNCHER_WIDTH = 132;
+  const FOCUS_LAUNCHER_HEIGHT = 46;
+  const FOCUS_PANEL_WIDTH = 520;
+  const FOCUS_PANEL_HEIGHT = 132;
 
   const remainingMs = $derived(currentFocusRemainingMs(clockNow));
   const panelTitle = $derived(
@@ -53,6 +61,34 @@
     document.documentElement.classList.add("focus-panel-runtime");
     document.body.classList.add("focus-panel-runtime");
     void refresh();
+    const unlisteners: Array<() => void> = [];
+    if (isTauri()) {
+      const currentWindow = Window.getCurrent();
+      void syncCapsuleModeToWindowSize(currentWindow);
+      void currentWindow
+        .listen("focus-panel:launcher", () => {
+          capsuleOpen = false;
+        })
+        .then((unlisten) => {
+          unlisteners.push(unlisten);
+        });
+      void currentWindow
+        .onResized(({ payload: size }) => {
+          void syncCapsuleModeToWindowSize(currentWindow, size);
+        })
+        .then((unlisten) => {
+          unlisteners.push(unlisten);
+        });
+      void currentWindow
+        .onFocusChanged(({ payload: focused }) => {
+          if (focused) {
+            void syncCapsuleModeToWindowSize(currentWindow);
+          }
+        })
+        .then((unlisten) => {
+          unlisteners.push(unlisten);
+        });
+    }
     const refreshId = window.setInterval(refresh, 1000);
     const clockId = window.setInterval(() => {
       const now = Date.now();
@@ -69,6 +105,7 @@
     return () => {
       document.documentElement.classList.remove("focus-panel-runtime");
       document.body.classList.remove("focus-panel-runtime");
+      unlisteners.forEach((unlisten) => unlisten());
       window.clearInterval(refreshId);
       window.clearInterval(clockId);
     };
@@ -151,20 +188,47 @@
     });
   }
 
+  async function updateFocusMinutes(value: number) {
+    appSettings = await setAppSettings({
+      ...appSettings,
+      focusMinutes: Math.max(1, Math.min(180, Math.round(value || 1))),
+    });
+  }
+
+  async function syncCapsuleModeToWindowSize(
+    currentWindow = Window.getCurrent(),
+    size?: PhysicalSize,
+  ) {
+    const currentSize = size ?? (await currentWindow.innerSize());
+    const scaleFactor = await currentWindow.scaleFactor().catch(() => 1);
+    if (
+      currentSize.width <= FOCUS_LAUNCHER_WIDTH * scaleFactor + 1 &&
+      currentSize.height <= FOCUS_LAUNCHER_HEIGHT * scaleFactor + 1
+    ) {
+      capsuleOpen = false;
+    }
+  }
+
+  async function openCapsule() {
+    capsuleOpen = true;
+    if (isTauri()) {
+      await Window.getCurrent().setSize(
+        new LogicalSize(FOCUS_PANEL_WIDTH, FOCUS_PANEL_HEIGHT),
+      );
+    }
+  }
+
   async function openMainPanel() {
     if (!isTauri()) {
       return;
     }
 
-    const main = await Window.getByLabel("main");
-    if (main) {
-      await main.show();
-      await main.setFocus();
-    }
+    await showMainWindow();
     await closePanel();
   }
 
   async function closePanel() {
+    capsuleOpen = false;
     if (isTauri()) {
       await Window.getCurrent().hide();
     }
@@ -192,7 +256,7 @@
 
   function focusProgress() {
     if (runtime.focusState.mode === "idle") {
-      return 0;
+      return 1;
     }
 
     const totalMs =
@@ -203,7 +267,7 @@
       return 0;
     }
 
-    return Math.max(0, Math.min(1, 1 - remainingMs / totalMs));
+    return Math.max(0, Math.min(1, remainingMs / totalMs));
   }
 
   function focusStatusLabel() {
@@ -220,74 +284,184 @@
   }
 </script>
 
-<section
-  class="focus-capsule"
-  data-mode={runtime.focusState.mode}
-  data-status={runtime.focusState.status}
-  aria-label="专注模式"
->
-  <div class="capsule-meta">
-    <span>{panelTitle}</span>
-    <strong>{panelTime}</strong>
-    <small>{panelStatus}</small>
-  </div>
-
-  <div class="capsule-actions">
+{#if !capsuleOpen}
+  <section class="focus-launcher-surface" aria-label="专注模式入口">
+    <button class="focus-launcher" type="button" onclick={openCapsule}>打开专注模式</button>
+  </section>
+{:else}
+  <section
+    class="focus-capsule"
+    data-mode={runtime.focusState.mode}
+    data-status={runtime.focusState.status}
+    aria-label="专注模式"
+  >
     <button
-      class="capsule-primary"
-      aria-label={primaryActionLabel}
-      title={primaryActionLabel}
-      onclick={primaryAction}
-    >
-      {#if runtime.focusState.status === "running"}
-        <span class="pause-icon"></span>
-      {:else}
-        <span class="play-icon"></span>
-      {/if}
-      <span>{primaryActionLabel}</span>
-    </button>
-
-    <button class="reset-button" aria-label="重置计时" title="重置计时" onclick={resetFocus}>重置</button>
-    <button
-      class="icon-button more-icon"
-      aria-label="更多"
-      title="更多"
-      onclick={openMainPanel}
+      class="close-button"
+      aria-label="关闭气泡"
+      title="关闭气泡"
+      onclick={closePanel}
     ></button>
-  </div>
 
-  <div class="capsule-progress" style={`--progress: ${progressPercent}`}></div>
-</section>
+    <div class="capsule-meta">
+      <span>{panelTitle}</span>
+      <strong>{panelTime}</strong>
+      <small>{panelStatus}</small>
+    </div>
+
+    <label class="capsule-settings">
+      <span>时长</span>
+      <input
+        class="duration-stepper"
+        aria-label="专注时长"
+        type="number"
+        min="1"
+        max="180"
+        value={appSettings.focusMinutes}
+        onchange={(event) =>
+          updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
+      />
+      <small>分钟</small>
+    </label>
+
+    <div class="capsule-actions">
+      <button
+        class="capsule-primary"
+        aria-label={primaryActionLabel}
+        title={primaryActionLabel}
+        onclick={primaryAction}
+      >
+        {#if runtime.focusState.status === "running"}
+          <span class="pause-icon"></span>
+        {:else}
+          <span class="play-icon"></span>
+        {/if}
+        <span>{primaryActionLabel}</span>
+      </button>
+
+      <button class="reset-button" aria-label="重置计时" title="重置计时" onclick={resetFocus}>重置</button>
+      <button
+        class="icon-button more-icon"
+        aria-label="打开桌面端"
+        title="打开桌面端"
+        onclick={openMainPanel}
+      ></button>
+    </div>
+
+    <div class="capsule-progress" style={`--progress: ${progressPercent}`}></div>
+  </section>
+{/if}
 
 <style>
   :global(html.focus-panel-runtime),
   :global(body.focus-panel-runtime),
   :global(body.focus-panel-runtime #app) {
-    width: 100%;
+    width: 100vw;
+    height: 100vh;
     min-width: 0;
     min-height: 0;
+    margin: 0;
     overflow: hidden;
     background: transparent;
   }
 
+  .focus-launcher-surface,
   .focus-capsule {
     position: relative;
-    width: 396px;
-    height: 116px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 18px;
-    padding: 18px 18px 20px 22px;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
+  }
+
+  .focus-launcher-surface {
+    display: grid;
+    place-items: start;
+    background: transparent;
+  }
+
+  .focus-launcher,
+  .focus-capsule {
+    position: relative;
     color: #1b1f1d;
-    background: rgba(255, 253, 248, 0.96);
-    border: 1px solid rgba(49, 54, 51, 0.1);
+    background: rgba(255, 253, 248, 0.98);
+    border: 0;
     border-radius: 24px;
-    box-shadow:
-      0 14px 32px rgba(32, 37, 35, 0.15),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.75);
+    box-shadow: none;
     user-select: none;
+  }
+
+  .focus-launcher::before,
+  .focus-capsule::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(49, 54, 51, 0.12);
+  }
+
+  .focus-launcher {
+    width: 132px;
+    height: 46px;
+    min-height: 46px;
+    display: grid;
+    place-items: center;
+    padding: 0 16px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 650;
+    background: #202523;
+  }
+
+  .focus-launcher:hover {
+    background: #111513;
+    transform: none;
+  }
+
+  .focus-capsule {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 42px 20px 22px;
+  }
+
+  .close-button {
+    position: absolute;
+    top: 8px;
+    right: 9px;
+    z-index: 1;
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    padding: 0;
+    background: transparent;
+  }
+
+  .close-button::before,
+  .close-button::after {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 1.5px;
+    border-radius: 999px;
+    background: #59615a;
+  }
+
+  .close-button::before {
+    transform: rotate(45deg);
+  }
+
+  .close-button::after {
+    transform: rotate(-45deg);
+  }
+
+  .close-button:hover {
+    background: rgba(32, 37, 35, 0.08);
+    transform: none;
   }
 
   .capsule-meta {
@@ -311,23 +485,44 @@
 
   .capsule-meta small {
     grid-column: 1 / -1;
-    overflow: hidden;
     font-size: 12px;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .capsule-meta strong {
     grid-column: 1 / -1;
     display: block;
-    overflow: hidden;
     color: #202523;
     font-size: 42px;
     font-weight: 700;
     line-height: 0.96;
     letter-spacing: 0;
-    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .capsule-settings {
+    display: grid;
+    grid-template-columns: auto 54px auto;
+    align-items: center;
+    gap: 6px;
+    color: #676b64;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .capsule-settings span,
+  .capsule-settings small {
+    color: #676b64;
+  }
+
+  .duration-stepper {
+    width: 54px;
+    min-height: 30px;
+    border-color: #d4d8df;
+    border-radius: 999px;
+    padding: 0 6px;
+    text-align: center;
+    background: #ffffff;
   }
 
   .capsule-actions {

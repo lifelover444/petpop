@@ -332,3 +332,11 @@ export async function setPetWindowPosition(
 
   await invoke("set_pet_window_position", { x: position.x, y: position.y });
 }
+
+export async function showMainWindow(): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+
+  await invoke("show_main_window");
+}

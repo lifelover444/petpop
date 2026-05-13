@@ -314,10 +314,24 @@ fn main() {
             get_app_settings,
             set_app_settings,
             set_focus_state,
+            show_main_window,
             is_left_mouse_button_pressed
         ])
         .run(tauri::generate_context!())
         .expect("PetPop 运行失败");
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到桌面端控制面板窗口。".to_string())?;
+
+    window.show().map_err(to_string)?;
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+
+    Ok(())
 }
 
 #[tauri::command]
