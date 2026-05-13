@@ -16,6 +16,15 @@ describe("tauri focus panel window", () => {
     });
   });
 
+  it("sizes the focus panel wide enough for timer, settings, and actions", () => {
+    const focusWindow = tauriConfig.app.windows.find(
+      (window) => window.label === "focus-panel",
+    );
+
+    expect(focusWindow?.width).toBeGreaterThanOrEqual(800);
+    expect(focusWindow?.height).toBeGreaterThanOrEqual(154);
+  });
+
   it("keeps the main window wide enough for the three-column control layout", () => {
     const mainWindow = tauriConfig.app.windows.find(
       (window) => window.label === "main",

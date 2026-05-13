@@ -93,8 +93,8 @@
   const PET_WINDOW_HEIGHT = 208;
   const FOCUS_LAUNCHER_WIDTH = 132;
   const FOCUS_LAUNCHER_HEIGHT = 46;
-  const FOCUS_PANEL_WIDTH = 520;
-  const FOCUS_PANEL_HEIGHT = 132;
+  const FOCUS_PANEL_WIDTH = 800;
+  const FOCUS_PANEL_HEIGHT = 154;
 
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],

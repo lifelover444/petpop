@@ -26,10 +26,27 @@ describe("control app source", () => {
     expect(controlAppSource).toContain("onclick={removeActivePet}");
   });
 
-  it("organizes focus mode as status, settings, and actions", () => {
-    expect(controlAppSource).toContain('class="focus-summary"');
-    expect(controlAppSource).toContain('class="focus-settings"');
-    expect(controlAppSource).toContain('class="focus-actions"');
-    expect(controlAppSource).toContain('class="duration-field"');
+  it("keeps focus controls out of the desktop control page", () => {
+    expect(controlAppSource).not.toContain('class="focus-panel"');
+    expect(controlAppSource).not.toContain('class="focus-summary"');
+    expect(controlAppSource).not.toContain(">开始专注</button>");
+    expect(controlAppSource).not.toContain(">开始休息</button>");
+  });
+
+  it("keeps focus action mapping customization visible on the desktop control page", () => {
+    expect(controlAppSource).toContain('title: "专注模式"');
+    expect(controlAppSource).toContain('item.group === "focus"');
+  });
+
+  it("hides Codex interaction controls from the desktop control page", () => {
+    expect(controlAppSource).not.toContain('title: "Codex"');
+    expect(controlAppSource).not.toContain('item.group === "codex"');
+    expect(controlAppSource).not.toContain('class="runtime-status"');
+    expect(controlAppSource).not.toContain("<span>Codex</span>");
+  });
+
+  it("uses a generic reset label for action mappings", () => {
+    expect(controlAppSource).toContain(">恢复默认");
+    expect(controlAppSource).not.toContain("恢复 Codex 默认");
   });
 });

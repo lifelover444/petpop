@@ -28,23 +28,14 @@ describe("main window scrolling", () => {
   });
 });
 
-describe("focus panel layout", () => {
-  it("keeps focus settings visually subordinate to the timer status", () => {
-    const focusRule = styles.match(/\.focus-panel\s*\{(?<body>[^}]*)\}/)
-      ?.groups?.body;
-    const summaryRule = styles.match(/\.focus-summary\s*\{(?<body>[^}]*)\}/)
-      ?.groups?.body;
-
-    expect(focusRule).toBeDefined();
-    expect(focusRule).toContain("grid-template-columns");
-    expect(summaryRule).toBeDefined();
-    expect(summaryRule).toContain("grid-template-columns");
+describe("desktop control page chrome", () => {
+  it("does not ship desktop focus panel styles after focus moves to the pet bubble", () => {
+    expect(styles).not.toContain(".focus-panel");
+    expect(styles).not.toContain(".focus-summary");
+    expect(styles).not.toContain(".focus-actions");
   });
 
-  it("stacks focus actions before the workspace becomes too narrow", () => {
-    expect(styles).toContain("@media (max-width: 1120px)");
-    expect(styles).toMatch(
-      /\.focus-actions\s*\{[\s\S]*?grid-column\s*:\s*1\s*\/\s*-1/,
-    );
+  it("does not reserve layout space for Codex activity status on the desktop page", () => {
+    expect(styles).not.toContain(".runtime-status");
   });
 });

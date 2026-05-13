@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use image::GenericImageView;
@@ -14,7 +14,7 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, State,
+    Manager, State, WindowEvent,
 };
 use zip::ZipArchive;
 
@@ -36,6 +36,7 @@ const PETPOP_METADATA_SCHEMA_VERSION: u8 = 2;
 const PETDEX_PAGE_BASE: &str = "https://petdex.crafter.run/pets";
 const CODEX_ACTIVE_EXPIRE_MS: u64 = 5 * 60 * 1000;
 const CODEX_FEEDBACK_EXPIRE_MS: u64 = 15 * 1000;
+const DEFAULT_PET_SCALE: f32 = 0.5;
 
 const PET_ACTION_EVENTS: &[&str] = &[
     "drag-left",
@@ -104,8 +105,12 @@ struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        let settings = read_app_settings().unwrap_or_else(default_app_settings);
+        let mut runtime = RuntimeState::default();
+        runtime.scale = settings.pet_scale;
+
         Self {
-            runtime: Mutex::new(RuntimeState::default()),
+            runtime: Mutex::new(runtime),
             last_codex_activity: Mutex::new(CodexActivity::default()),
         }
     }
@@ -127,7 +132,7 @@ impl Default for RuntimeState {
         Self {
             active_pet_id: None,
             scene: "idle".to_string(),
-            scale: 0.5,
+            scale: DEFAULT_PET_SCALE,
             focus_state: FocusState::default(),
             codex_activity: CodexActivity::default(),
             codex_activity_error: None,
@@ -182,6 +187,8 @@ impl Default for CodexActivity {
 struct AppSettings {
     focus_minutes: u32,
     break_minutes: u32,
+    #[serde(default = "default_pet_scale")]
+    pet_scale: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -264,6 +271,16 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let window_for_close = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_for_close.hide();
+                    }
+                });
+            }
+
             let show = MenuItem::with_id(app, "show", "显示 PetPop", true, None::<&str>)?;
             let hide_pet = MenuItem::with_id(app, "hide_pet", "隐藏桌宠", true, None::<&str>)?;
             let show_pet = MenuItem::with_id(app, "show_pet", "显示桌宠", true, None::<&str>)?;
@@ -275,10 +292,7 @@ fn main() {
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = show_main_window(app.clone());
                     }
                     "show_pet" => {
                         if let Some(window) = app.get_webview_window("pet") {
@@ -516,9 +530,14 @@ fn set_scene(scene: String, state: State<AppState>) -> Result<RuntimeState, Stri
 
 #[tauri::command]
 fn set_scale(scale: f32, state: State<AppState>) -> Result<RuntimeState, String> {
+    let next_scale = scale.clamp(0.1, 1.0);
+    let mut settings = read_app_settings().unwrap_or_else(default_app_settings);
+    settings.pet_scale = next_scale;
+    write_app_settings(&settings)?;
+
     {
         let mut runtime = state.runtime.lock().map_err(to_string)?;
-        runtime.scale = scale.clamp(0.1, 1.0);
+        runtime.scale = next_scale;
     }
     runtime_snapshot(state.inner())
 }
@@ -530,9 +549,11 @@ fn get_app_settings() -> Result<AppSettings, String> {
 
 #[tauri::command]
 fn set_app_settings(focus_minutes: u32, break_minutes: u32) -> Result<AppSettings, String> {
+    let current_settings = read_app_settings().unwrap_or_else(default_app_settings);
     let settings = AppSettings {
         focus_minutes: focus_minutes.clamp(1, 180),
         break_minutes: break_minutes.clamp(1, 60),
+        pet_scale: current_settings.pet_scale,
     };
     write_app_settings(&settings)?;
     Ok(settings)
@@ -786,7 +807,12 @@ fn default_app_settings() -> AppSettings {
     AppSettings {
         focus_minutes: 25,
         break_minutes: 5,
+        pet_scale: default_pet_scale(),
     }
+}
+
+fn default_pet_scale() -> f32 {
+    DEFAULT_PET_SCALE
 }
 
 fn read_app_settings() -> Option<AppSettings> {
@@ -796,6 +822,7 @@ fn read_app_settings() -> Option<AppSettings> {
     Some(AppSettings {
         focus_minutes: settings.focus_minutes.clamp(1, 180),
         break_minutes: settings.break_minutes.clamp(1, 60),
+        pet_scale: settings.pet_scale.clamp(0.1, 1.0),
     })
 }
 

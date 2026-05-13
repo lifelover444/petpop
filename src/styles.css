@@ -219,10 +219,10 @@ label span,
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "scenes scenes"
-    "scale status";
+    "scenes"
+    "scale";
   align-items: center;
   gap: 14px;
   padding: 0 26px 24px;
@@ -252,91 +252,6 @@ label span,
 .scale-control input {
   min-height: 0;
   padding: 0;
-}
-
-.runtime-status {
-  grid-area: status;
-  display: grid;
-  grid-template-columns: auto auto;
-  align-items: center;
-  gap: 4px 10px;
-  min-width: 180px;
-  border-left: 1px solid #ddd8cc;
-  padding-left: 14px;
-}
-
-.runtime-status span,
-.runtime-status small,
-.focus-summary span,
-.focus-summary small,
-.duration-field span,
-.duration-field small {
-  color: #676b64;
-}
-
-.runtime-status small {
-  grid-column: 1 / -1;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.focus-panel {
-  display: grid;
-  grid-template-columns: minmax(210px, 1fr) minmax(220px, auto) auto;
-  align-items: center;
-  gap: 18px;
-  border-top: 1px solid #ddd8cc;
-  padding: 16px 26px 18px;
-}
-
-.focus-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
-}
-
-.focus-summary div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.focus-summary strong {
-  color: #202523;
-  font-size: 30px;
-  font-weight: 650;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.focus-settings {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.duration-field {
-  display: grid;
-  grid-template-columns: auto 58px auto;
-  align-items: center;
-  gap: 7px;
-}
-
-.duration-field input {
-  min-height: 32px;
-  padding: 0 8px;
-  text-align: center;
-}
-
-.focus-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
 }
 
 .importer {
@@ -423,25 +338,6 @@ label span,
   font-size: 13px;
 }
 
-@media (max-width: 1120px) {
-  .focus-panel {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .focus-summary {
-    grid-column: 1 / -1;
-  }
-
-  .focus-settings {
-    justify-content: flex-start;
-  }
-
-  .focus-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-}
-
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 180px minmax(0, 1fr);
@@ -461,14 +357,7 @@ label span,
     grid-template-columns: 1fr;
     grid-template-areas:
       "scenes"
-      "scale"
-      "status";
-  }
-
-  .runtime-status {
-    border-left: 0;
-    border-top: 1px solid #ddd8cc;
-    padding: 12px 0 0;
+      "scale";
   }
 
   .topbar {

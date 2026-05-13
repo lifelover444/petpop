@@ -39,8 +39,8 @@
   let capsuleOpen = $state(false);
   const FOCUS_LAUNCHER_WIDTH = 132;
   const FOCUS_LAUNCHER_HEIGHT = 46;
-  const FOCUS_PANEL_WIDTH = 520;
-  const FOCUS_PANEL_HEIGHT = 132;
+  const FOCUS_PANEL_WIDTH = 800;
+  const FOCUS_PANEL_HEIGHT = 154;
 
   const remainingMs = $derived(currentFocusRemainingMs(clockNow));
   const panelTitle = $derived(
@@ -54,7 +54,7 @@
       ? "暂停"
       : runtime.focusState.status === "paused"
         ? "继续"
-        : "开始",
+        : "开始专注",
   );
 
   $effect(() => {
@@ -81,9 +81,12 @@
         });
       void currentWindow
         .onFocusChanged(({ payload: focused }) => {
-          if (focused) {
-            void syncCapsuleModeToWindowSize(currentWindow);
+          if (!focused) {
+            void hideLauncherOnBlur();
+            return;
           }
+
+          void syncCapsuleModeToWindowSize(currentWindow);
         })
         .then((unlisten) => {
           unlisteners.push(unlisten);
@@ -145,6 +148,17 @@
     });
   }
 
+  async function startBreak() {
+    const durationMs = appSettings.breakMinutes * 60_000;
+    runtime = await setFocusState({
+      mode: "break",
+      status: "running",
+      lastEvent: "break-start",
+      remainingMs: durationMs,
+      endsAt: Date.now() + durationMs,
+    });
+  }
+
   async function pauseFocus() {
     runtime = await setFocusState({
       mode: runtime.focusState.mode,
@@ -195,6 +209,13 @@
     });
   }
 
+  async function updateBreakMinutes(value: number) {
+    appSettings = await setAppSettings({
+      ...appSettings,
+      breakMinutes: Math.max(1, Math.min(60, Math.round(value || 1))),
+    });
+  }
+
   async function syncCapsuleModeToWindowSize(
     currentWindow = Window.getCurrent(),
     size?: PhysicalSize,
@@ -207,6 +228,28 @@
     ) {
       capsuleOpen = false;
     }
+  }
+
+  async function hideLauncherOnBlur() {
+    if (!capsuleOpen) {
+      await Window.getCurrent().hide();
+    }
+  }
+
+  function startDraggingFocusPanel(event: PointerEvent) {
+    if (event.button !== 0 || !isTauri() || isInteractiveTarget(event.target)) {
+      return;
+    }
+
+    event.preventDefault();
+    void Window.getCurrent().startDragging();
+  }
+
+  function isInteractiveTarget(target: EventTarget | null) {
+    return (
+      target instanceof Element &&
+      Boolean(target.closest("button, input, select, textarea, a, label"))
+    );
   }
 
   async function openCapsule() {
@@ -294,6 +337,7 @@
     data-mode={runtime.focusState.mode}
     data-status={runtime.focusState.status}
     aria-label="专注模式"
+    onpointerdown={startDraggingFocusPanel}
   >
     <button
       class="close-button"
@@ -308,20 +352,37 @@
       <small>{panelStatus}</small>
     </div>
 
-    <label class="capsule-settings">
-      <span>时长</span>
-      <input
-        class="duration-stepper"
-        aria-label="专注时长"
-        type="number"
-        min="1"
-        max="180"
-        value={appSettings.focusMinutes}
-        onchange={(event) =>
-          updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
-      />
-      <small>分钟</small>
-    </label>
+    <div class="capsule-settings">
+      <label class="duration-field">
+        <span>专注</span>
+        <input
+          class="duration-stepper"
+          aria-label="专注时长"
+          type="number"
+          min="1"
+          max="180"
+          value={appSettings.focusMinutes}
+          onchange={(event) =>
+            updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
+        />
+        <small>分钟</small>
+      </label>
+
+      <label class="duration-field">
+        <span>休息</span>
+        <input
+          class="duration-stepper"
+          aria-label="休息时长"
+          type="number"
+          min="1"
+          max="60"
+          value={appSettings.breakMinutes}
+          onchange={(event) =>
+            updateBreakMinutes(Number((event.target as HTMLInputElement).value))}
+        />
+        <small>分钟</small>
+      </label>
+    </div>
 
     <div class="capsule-actions">
       <button
@@ -338,6 +399,9 @@
         <span>{primaryActionLabel}</span>
       </button>
 
+      {#if runtime.focusState.status !== "running" && runtime.focusState.status !== "paused"}
+        <button class="break-button" type="button" onclick={startBreak}>开始休息</button>
+      {/if}
       <button class="reset-button" aria-label="重置计时" title="重置计时" onclick={resetFocus}>重置</button>
       <button
         class="icon-button more-icon"
@@ -382,7 +446,7 @@
   .focus-capsule {
     position: relative;
     color: #1b1f1d;
-    background: rgba(255, 253, 248, 0.98);
+    background: #fffdf8;
     border: 0;
     border-radius: 24px;
     box-shadow: none;
@@ -419,7 +483,7 @@
 
   .focus-capsule {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: 176px minmax(248px, 1fr) auto;
     align-items: center;
     gap: 12px;
     padding: 18px 42px 20px 22px;
@@ -501,17 +565,24 @@
   }
 
   .capsule-settings {
-    display: grid;
-    grid-template-columns: auto 54px auto;
+    display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+    min-width: 0;
     color: #676b64;
     font-size: 12px;
     white-space: nowrap;
   }
 
-  .capsule-settings span,
-  .capsule-settings small {
+  .duration-field {
+    display: grid;
+    grid-template-columns: auto 54px auto;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .duration-field span,
+  .duration-field small {
     color: #676b64;
   }
 
@@ -528,11 +599,12 @@
   .capsule-actions {
     display: flex;
     align-items: center;
+    flex-wrap: nowrap;
     gap: 8px;
   }
 
   .capsule-primary {
-    min-width: 76px;
+    min-width: 92px;
     min-height: 36px;
     display: inline-flex;
     align-items: center;
@@ -544,6 +616,7 @@
     color: #ffffff;
     background: #202523;
     box-shadow: 0 8px 18px rgba(32, 37, 35, 0.16);
+    white-space: nowrap;
   }
 
   .capsule-primary:hover {
@@ -583,6 +656,26 @@
     color: #4d554f;
     background: #ffffff;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    white-space: nowrap;
+  }
+
+  .break-button {
+    min-width: 76px;
+    min-height: 32px;
+    border: 1px solid #d4d8df;
+    border-radius: 999px;
+    padding: 0 12px;
+    color: #265f3d;
+    background: #f4faf5;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    white-space: nowrap;
+  }
+
+  .break-button:hover {
+    border-color: #9ab9a4;
+    color: #1f4e33;
+    background: #edf7ef;
+    transform: none;
   }
 
   .reset-button:hover {

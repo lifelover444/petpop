@@ -13,7 +13,6 @@
   } from "../lib/animations";
   import {
     chooseImportPath,
-    getAppSettings,
     getPetSpriteUrl,
     getRuntimeState,
     importPetFromPath,
@@ -22,14 +21,10 @@
     removePet,
     scanCodexPets,
     setActivePet,
-    setAppSettings,
-    setFocusState,
     setPetActionMap,
     setScale,
     setScene,
     sourceKindLabel,
-    type AppSettings,
-    type FocusMode,
     type PetInfo,
     type RuntimeState,
   } from "../lib/petpop";
@@ -59,13 +54,8 @@
   let status = $state("就绪");
   let busy = $state(false);
   let lastInteraction = Date.now();
-  let clockNow = $state(Date.now());
   let activeSpriteUrl = $state("");
   let actionMapDraft = $state<PetActionMap>({});
-  let appSettings = $state<AppSettings>({
-    focusMinutes: 25,
-    breakMinutes: 5,
-  });
   let scenePlaybackKey = $state(0);
 
   const activePet = $derived(
@@ -78,21 +68,10 @@
       events: ACTION_EVENTS.filter((item) => item.group === "basic"),
     },
     {
-      title: "Codex",
-      events: ACTION_EVENTS.filter((item) => item.group === "codex"),
-    },
-    {
       title: "专注模式",
       events: ACTION_EVENTS.filter((item) => item.group === "focus"),
     },
   ]);
-  const focusRemainingMs = $derived(currentFocusRemainingMs(clockNow));
-  const focusLabel = $derived(formatDuration(focusRemainingMs));
-  const focusStatusText = $derived(focusStatusLabel());
-  const focusModeText = $derived(
-    runtime.focusState.mode === "break" ? "休息" : "专注",
-  );
-  const codexStatusLabel = $derived(codexLabel(runtime.codexActivity.status));
 
   async function refresh() {
     const [nextPets, nextRuntime] = await Promise.all([
@@ -105,10 +84,6 @@
     if (!nextRuntime.activePetId && nextPets[0]) {
       runtime = await setActivePet(nextPets[0].id);
     }
-  }
-
-  async function loadSettings() {
-    appSettings = await getAppSettings();
   }
 
   async function runAction<T>(message: string, action: () => Promise<T>) {
@@ -211,137 +186,6 @@
     runtime = await setScale(value);
   }
 
-  async function saveFocusSettings() {
-    appSettings = await setAppSettings(appSettings);
-    status = "专注设置已保存";
-  }
-
-  async function updateFocusMinutes(value: number) {
-    appSettings = {
-      ...appSettings,
-      focusMinutes: Math.max(1, Math.min(180, Math.round(value || 1))),
-    };
-    await saveFocusSettings();
-  }
-
-  async function updateBreakMinutes(value: number) {
-    appSettings = {
-      ...appSettings,
-      breakMinutes: Math.max(1, Math.min(60, Math.round(value || 1))),
-    };
-    await saveFocusSettings();
-  }
-
-  async function startFocus() {
-    await startTimedState("focus", appSettings.focusMinutes, "focus-start");
-    status = "专注中";
-  }
-
-  async function startBreak() {
-    await startTimedState("break", appSettings.breakMinutes, "break-start");
-    status = "休息中";
-  }
-
-  async function startTimedState(
-    mode: FocusMode,
-    minutes: number,
-    event: PetActionEvent,
-  ) {
-    const durationMs = minutes * 60_000;
-    runtime = await setFocusState({
-      mode,
-      status: "running",
-      lastEvent: event,
-      remainingMs: durationMs,
-      endsAt: Date.now() + durationMs,
-    });
-  }
-
-  async function pauseFocus() {
-    runtime = await setFocusState({
-      mode: runtime.focusState.mode,
-      status: "paused",
-      lastEvent: "focus-pause",
-      remainingMs: currentFocusRemainingMs(Date.now()),
-      endsAt: null,
-    });
-    status = runtime.focusState.mode === "break" ? "休息已暂停" : "专注已暂停";
-  }
-
-  async function resumeFocus() {
-    const remainingMs = Math.max(1000, currentFocusRemainingMs(Date.now()));
-    const event =
-      runtime.focusState.mode === "break" ? "break-start" : "focus-resume";
-    runtime = await setFocusState({
-      mode: runtime.focusState.mode,
-      status: "running",
-      lastEvent: event,
-      remainingMs,
-      endsAt: Date.now() + remainingMs,
-    });
-    status = runtime.focusState.mode === "break" ? "休息中" : "专注中";
-  }
-
-  async function completeFocus() {
-    const isBreak = runtime.focusState.mode === "break";
-    runtime = await setFocusState({
-      mode: runtime.focusState.mode,
-      status: "complete",
-      lastEvent: isBreak ? "break-complete" : "focus-complete",
-      remainingMs: 0,
-      endsAt: null,
-    });
-    status = isBreak ? "休息完成" : "专注完成";
-  }
-
-  async function cancelFocus() {
-    runtime = await setFocusState({
-      mode: "idle",
-      status: "idle",
-      lastEvent: "focus-cancel",
-      remainingMs: null,
-      endsAt: null,
-    });
-    status = "专注已结束";
-  }
-
-  function currentFocusRemainingMs(now: number) {
-    const { focusState } = runtime;
-    if (focusState.mode === "idle") {
-      return appSettings.focusMinutes * 60_000;
-    }
-    if (focusState.status === "running" && focusState.endsAt) {
-      return Math.max(0, focusState.endsAt - now);
-    }
-    return Math.max(0, focusState.remainingMs ?? 0);
-  }
-
-  function formatDuration(value: number) {
-    const totalSeconds = Math.ceil(value / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-      .toString()
-      .padStart(2, "0")}`;
-  }
-
-  function codexLabel(status: RuntimeState["codexActivity"]["status"]) {
-    switch (status) {
-      case "running":
-        return "运行中";
-      case "waiting":
-        return "等待输入";
-      case "review":
-        return "审阅";
-      case "success":
-        return "成功";
-      case "error":
-        return "失败";
-      default:
-        return "空闲";
-    }
-  }
-
   async function updateMappedAction(
     event: PetActionEvent,
     state: PetAnimationState,
@@ -353,19 +197,6 @@
 
   async function saveActionMap() {
     await persistActionMap(actionMapDraft, true);
-  }
-
-  function focusStatusLabel() {
-    switch (runtime.focusState.status) {
-      case "running":
-        return "进行中";
-      case "paused":
-        return "已暂停";
-      case "complete":
-        return "已完成";
-      default:
-        return "未开始";
-    }
   }
 
   async function resetActionMap() {
@@ -399,24 +230,11 @@
   }
 
   $effect(() => {
-    loadSettings();
     refresh();
     const refreshId = window.setInterval(refresh, 1000);
-    const clockId = window.setInterval(() => {
-      const now = Date.now();
-      clockNow = now;
-      if (
-        runtime.focusState.status === "running" &&
-        runtime.focusState.endsAt &&
-        runtime.focusState.endsAt <= now
-      ) {
-        void completeFocus();
-      }
-    }, 500);
 
     return () => {
       window.clearInterval(refreshId);
-      window.clearInterval(clockId);
     };
   });
 
@@ -542,77 +360,13 @@
         <strong>{runtime.scale.toFixed(2)}x</strong>
       </label>
 
-      <div class="runtime-status">
-        <span>Codex</span>
-        <strong>{codexStatusLabel}</strong>
-        {#if runtime.codexActivityError}
-          <small>{runtime.codexActivityError}</small>
-        {:else if runtime.codexActivity.message}
-          <small>{runtime.codexActivity.message}</small>
-        {/if}
-      </div>
-    </div>
-
-    <div class="focus-panel">
-      <div class="focus-summary">
-        <div>
-          <span>专注模式</span>
-          <small>{focusModeText} · {focusStatusText}</small>
-        </div>
-        <strong>{focusLabel}</strong>
-      </div>
-
-      <div class="focus-settings" aria-label="专注时长设置">
-        <label class="duration-field">
-          <span>专注</span>
-          <input
-            type="number"
-            min="1"
-            max="180"
-            value={appSettings.focusMinutes}
-            onchange={(event) =>
-              updateFocusMinutes(Number((event.target as HTMLInputElement).value))}
-          />
-          <small>分钟</small>
-        </label>
-
-        <label class="duration-field">
-          <span>休息</span>
-          <input
-            type="number"
-            min="1"
-            max="60"
-            value={appSettings.breakMinutes}
-            onchange={(event) =>
-              updateBreakMinutes(Number((event.target as HTMLInputElement).value))}
-          />
-          <small>分钟</small>
-        </label>
-      </div>
-
-      <div class="focus-actions">
-        {#if runtime.focusState.status === "running"}
-          <button onclick={pauseFocus}>暂停</button>
-          <button onclick={completeFocus}>完成</button>
-          <button onclick={cancelFocus}>结束</button>
-        {:else if runtime.focusState.status === "paused"}
-          <button onclick={resumeFocus}>继续</button>
-          <button onclick={completeFocus}>完成</button>
-          <button onclick={cancelFocus}>结束</button>
-        {:else}
-          <button onclick={startFocus}>开始专注</button>
-          <button onclick={startBreak}>开始休息</button>
-        {/if}
-      </div>
     </div>
 
     <div class="action-map">
       <div class="action-map-header">
         <h2>动作映射</h2>
         <div class="action-map-buttons">
-          <button disabled={busy || !activePet} onclick={resetActionMap}>
-            恢复 Codex 默认
-          </button>
+          <button disabled={busy || !activePet} onclick={resetActionMap}>恢复默认</button>
           <button disabled={busy || !activePet} onclick={saveActionMap}>保存</button>
         </div>
       </div>

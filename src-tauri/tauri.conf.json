@@ -39,8 +39,8 @@
       {
         "label": "focus-panel",
         "title": "PetPop 专注面板",
-        "width": 476,
-        "height": 132,
+        "width": 800,
+        "height": 154,
         "resizable": false,
         "decorations": false,
         "transparent": true,

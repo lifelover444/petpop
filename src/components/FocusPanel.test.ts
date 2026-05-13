@@ -38,6 +38,20 @@ describe("focus panel styles", () => {
     expect(focusPanelSource).toContain("capsuleOpen = false");
   });
 
+  it("hides the launcher when the user clicks away from the focus-panel window", () => {
+    expect(focusPanelSource).toContain("hideLauncherOnBlur");
+    expect(focusPanelSource).toContain("if (!focused)");
+    expect(focusPanelSource).toContain("!capsuleOpen");
+    expect(focusPanelSource).toContain("Window.getCurrent().hide()");
+  });
+
+  it("uses native window dragging for non-control areas of the focus panel", () => {
+    expect(focusPanelSource).toContain("startDraggingFocusPanel");
+    expect(focusPanelSource).toContain("Window.getCurrent().startDragging()");
+    expect(focusPanelSource).toContain("isInteractiveTarget");
+    expect(focusPanelSource).toContain("onpointerdown={startDraggingFocusPanel}");
+  });
+
   it("uses the close button only to hide the bubble", () => {
     expect(focusPanelSource).toContain('class="close-button"');
     expect(focusPanelSource).toContain('aria-label="关闭气泡"');
@@ -57,6 +71,14 @@ describe("focus panel styles", () => {
     expect(focusPanelSource).toContain("updateFocusMinutes");
     expect(focusPanelSource).toContain('class="duration-stepper"');
     expect(focusPanelSource).toContain('aria-label="专注时长"');
+  });
+
+  it("allows break duration edits and break starts inside the bubble", () => {
+    expect(focusPanelSource).toContain("updateBreakMinutes");
+    expect(focusPanelSource).toContain('aria-label="休息时长"');
+    expect(focusPanelSource).toContain("async function startBreak()");
+    expect(focusPanelSource).toContain('lastEvent: "break-start"');
+    expect(focusPanelSource).toContain(">开始休息</button>");
   });
 
   it("renders reset as a clear secondary text action", () => {
@@ -90,5 +112,15 @@ describe("focus panel styles", () => {
     expect(focusPanelSource).toContain("width: 100vw");
     expect(focusPanelSource).toContain("height: 100vh");
     expect(focusPanelSource).toContain("display: grid");
+  });
+
+  it("reserves stable columns so timer text cannot be covered by settings", () => {
+    expect(focusPanelSource).toContain("const FOCUS_PANEL_WIDTH = 800");
+    expect(focusPanelSource).toContain("const FOCUS_PANEL_HEIGHT = 154");
+    expect(focusPanelSource).toContain(
+      "grid-template-columns: 176px minmax(248px, 1fr) auto",
+    );
+    expect(focusPanelSource).toContain("min-width: 0");
+    expect(focusPanelSource).toContain("background: #fffdf8");
   });
 });

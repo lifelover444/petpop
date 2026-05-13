@@ -34,8 +34,8 @@ describe("pet window source", () => {
   it("opens the compact focus bubble near the right-click position", () => {
     expect(petWindowSource).toContain("const FOCUS_LAUNCHER_WIDTH = 132");
     expect(petWindowSource).toContain("const FOCUS_LAUNCHER_HEIGHT = 46");
-    expect(petWindowSource).toContain("const FOCUS_PANEL_WIDTH = 520");
-    expect(petWindowSource).toContain("const FOCUS_PANEL_HEIGHT = 132");
+    expect(petWindowSource).toContain("const FOCUS_PANEL_WIDTH = 800");
+    expect(petWindowSource).toContain("const FOCUS_PANEL_HEIGHT = 154");
     expect(petWindowSource).toContain("focusPanel.setSize");
     expect(petWindowSource).toContain("new LogicalSize(FOCUS_LAUNCHER_WIDTH, FOCUS_LAUNCHER_HEIGHT)");
     expect(petWindowSource).toContain("new LogicalPosition(position.x, position.y)");
