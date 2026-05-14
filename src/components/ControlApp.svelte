@@ -58,6 +58,8 @@
   let actionMapDraft = $state<PetActionMap>({});
   let scenePlaybackKey = $state(0);
 
+  const appIconUrl = "/app-icon.png";
+
   const activePet = $derived(
     pets.find((pet) => pet.id === runtime.activePetId) ?? pets[0],
   );
@@ -131,7 +133,7 @@
 
   async function importPetdexNow() {
     if (!petdexInput.trim()) {
-      status = "请输入 PetDex ID 或链接";
+      status = "请输入 PetDex 宠物网页链接";
       return;
     }
 
@@ -273,10 +275,9 @@
 <main class="app-shell">
   <section class="library">
     <div class="brand">
-      <span class="mark"></span>
+      <img class="mark" src={appIconUrl} alt="" aria-hidden="true" />
       <div>
         <h1>PetPop</h1>
-        <p>通用桌宠运行时</p>
       </div>
     </div>
 
@@ -415,7 +416,7 @@
 
     <label>
       <span>PetDex</span>
-      <input bind:value={petdexInput} placeholder="boba 或 PetDex 链接" />
+      <input bind:value={petdexInput} placeholder="PetDex 宠物网页链接" />
     </label>
     <button disabled={busy} onclick={importPetdexNow}>导入 PetDex 宠物</button>
 

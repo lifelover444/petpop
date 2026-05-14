@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import buildSource from "../src-tauri/build.rs?raw";
 import mainSource from "../src-tauri/src/main.rs?raw";
 
 describe("tauri main window lifecycle", () => {
@@ -11,6 +12,12 @@ describe("tauri main window lifecycle", () => {
   it("does not create a Windows console for debug builds", () => {
     expect(mainSource).toContain('cfg_attr(target_os = "windows", windows_subsystem = "windows")');
     expect(mainSource).not.toContain("not(debug_assertions)");
+  });
+
+  it("uses the packaged app icon for the tray and Windows executable", () => {
+    expect(mainSource).toContain("app.default_window_icon().cloned()");
+    expect(mainSource).toContain("tray = tray.icon(icon)");
+    expect(buildSource).toContain('window_icon_path("icons/icon.ico")');
   });
 });
 

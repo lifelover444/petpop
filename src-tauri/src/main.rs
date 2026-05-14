@@ -286,10 +286,16 @@ fn main() {
             let show_pet = MenuItem::with_id(app, "show_pet", "显示桌宠", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &show_pet, &hide_pet, &quit])?;
-
-            TrayIconBuilder::new()
+            let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
                 .show_menu_on_left_click(true)
+                .tooltip("PetPop");
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
+            }
+
+            tray
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         let _ = show_main_window(app.clone());

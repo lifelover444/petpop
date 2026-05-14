@@ -26,6 +26,22 @@ describe("control app source", () => {
     expect(controlAppSource).toContain("onclick={removeActivePet}");
   });
 
+  it("uses the packaged app avatar instead of the old placeholder mark", () => {
+    const oldSubtitle = ["通用", "桌宠", "运行时"].join("");
+
+    expect(controlAppSource).toContain('const appIconUrl = "/app-icon.png"');
+    expect(controlAppSource).toContain('class="mark"');
+    expect(controlAppSource).toContain("src={appIconUrl}");
+    expect(controlAppSource).not.toContain(oldSubtitle);
+  });
+
+  it("labels the PetDex input as a web page link field", () => {
+    expect(controlAppSource).toContain('placeholder="PetDex 宠物网页链接"');
+    expect(controlAppSource).toContain('status = "请输入 PetDex 宠物网页链接"');
+    expect(controlAppSource).not.toContain('placeholder="boba 或 PetDex 链接"');
+    expect(controlAppSource).not.toContain("请输入 PetDex ID 或链接");
+  });
+
   it("keeps focus controls out of the desktop control page", () => {
     expect(controlAppSource).not.toContain('class="focus-panel"');
     expect(controlAppSource).not.toContain('class="focus-summary"');

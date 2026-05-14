@@ -121,6 +121,6 @@ describe("focus panel styles", () => {
       "grid-template-columns: 176px minmax(248px, 1fr) auto",
     );
     expect(focusPanelSource).toContain("min-width: 0");
-    expect(focusPanelSource).toContain("background: #fffdf8");
+    expect(focusPanelSource).toContain("background: #fffaff");
   });
 });
