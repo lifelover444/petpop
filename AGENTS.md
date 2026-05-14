@@ -9,6 +9,7 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
 - Keep the app lightweight. Prefer Tauri/Rust/Svelte primitives over Electron-style heavy runtime assumptions.
 - Do not bundle third-party PetDex pets into the app. Users must explicitly import them.
 - Do not modify `~/.codex/pets` or repository sample pets during normal app operation. Imported pets belong under `%APPDATA%/PetPop/pets/`.
+- Removing a pet from PetPop must only delete the imported PetPop copy under `%APPDATA%/PetPop/pets/`.
 - Preserve compatibility with the Codex pet contract:
   - atlas size: `1536x1872`
   - grid: `8` columns x `9` rows
@@ -24,18 +25,24 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
   - `src/lib/petpop.ts` owns Tauri command wrappers and browser-preview fallbacks.
   - `src/lib/runtimeScene.ts` converts runtime Codex/focus/idle state into scene events.
   - `src/lib/sceneEngine.ts` owns scene priority and lock scheduling.
+  - `src/lib/petInteraction.ts` owns click/double-click and drag direction helpers.
+  - `src/lib/interactionTiming.ts` owns shared interaction timing constants.
   - `src/components/ControlApp.svelte` is the control panel.
+  - `src/components/FocusPanel.svelte` is the transparent always-on-top focus timer panel.
   - `src/components/PetWindow.svelte` is the transparent always-on-top runtime pet window.
   - `src/components/SpritePet.svelte` renders one atlas frame by CSS background positioning.
 - Tauri/Rust lives in `src-tauri/`.
-  - `src-tauri/src/main.rs` owns import, validation, PetDex download, runtime state, focus settings, Codex bridge reads, and persisted window position.
-  - `src-tauri/tauri.conf.json` defines the main control window and transparent pet window.
+  - `src-tauri/src/main.rs` owns import, validation, PetDex download, pet removal, tray menu, runtime state, focus settings, Codex bridge reads, legacy data migration, and persisted window position.
+  - `src-tauri/tauri.conf.json` defines the main control window, transparent pet window, and transparent focus panel window.
   - `src-tauri/capabilities/default.json` must include permissions for any JS-side Tauri APIs used.
 
 ## Runtime Behavior
 
 - The `main` window is a normal control panel.
+- Closing the `main` window should hide it to the system tray rather than exit.
 - The `pet` window must stay transparent, undecorated, always-on-top, and skip the taskbar.
+- The `focus-panel` window must stay transparent, undecorated, always-on-top, skip the taskbar, and remain hidden until opened from the pet window.
+- The tray menu must support showing the control panel, showing/hiding the pet window, and quitting the app.
 - The pet window must use native `startDragging()` for dragging.
 - While dragging the pet window:
   - movement to the right maps to `running-right`
@@ -44,6 +51,7 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
   - release persists the window position for the next launch
 - Local sprites are loaded through the Rust command `get_pet_sprite_data_url` so the WebView does not depend on direct filesystem asset permissions.
 - Pet scale is clamped to `0.1..1.0`; default scale is `0.5`.
+- Pet scale is a global app setting persisted in `%APPDATA%/PetPop/settings.json`; do not reset focus settings when changing scale.
 - Runtime scene priority is interaction/dragging, then short feedback, then Codex activity, then focus mode, then idle/waiting.
 
 ## Pet Import Rules
@@ -53,6 +61,7 @@ PetPop is a Windows-first Tauri 2 + Svelte desktop runtime for Codex-compatible 
 - PetDex import should resolve pets through `https://petdex.crafter.run/api/manifest` and use the returned `petJsonUrl` and `spritesheetUrl`.
 - During import, validate spritesheet dimensions with Rust image decoding.
 - During normal listing, do not repeatedly decode spritesheets. Listing should be cheap and metadata-oriented.
+- PetPop may migrate legacy `%APPDATA%/PetDesk` data to `%APPDATA%/PetPop`, but migration must not overwrite existing PetPop user data.
 
 ## Animation Mapping
 
@@ -82,7 +91,7 @@ Current event groups:
 
 - Focus mode is a lightweight timer, not a task manager.
 - Defaults are 25 minutes focus and 5 minutes break.
-- Persist only settings in `%APPDATA%/PetPop/settings.json`; do not restore an in-progress countdown after restart.
+- Persist only focus/break defaults and global pet scale in `%APPDATA%/PetPop/settings.json`; do not restore an in-progress countdown after restart.
 - Focus and break state must reuse the action mapping pipeline instead of hardcoding animation states.
 
 ## Codex Activity Bridge
